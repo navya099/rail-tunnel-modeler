@@ -1,7 +1,8 @@
-"""Model two tunnel segments and check clearance from a project JSON file."""
+"""Model tunnels and check clearance from a project JSON file."""
 
 import argparse
 import json
+from itertools import cycle
 from math import isfinite
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
@@ -10,9 +11,11 @@ import numpy as np
 import trimesh
 from defusedxml.common import DefusedXmlException
 
+from .auxiliaries import place_auxiliary, shaft_section
+from .checks import validate_pairs
 from .landxml import LandXML
 from .loft import SectionKeyframe
-from .model import build_tunnel, compare
+from .model import build_tunnel, sweep_tunnel
 from .sections import boundaries, read_section
 
 
@@ -60,8 +63,10 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     config = json.loads(path.read_text(encoding="utf-8-sig"))
     landxml_path = path.parent / config["landxml"]
     segments = config["tunnels"]
-    if len(segments) != 2 or len({segment["name"] for segment in segments}) != 2:
-        raise ValueError("Specify exactly two uniquely named tunnel segments")
+    auxiliaries = config.get("auxiliaries", [])
+    names = [item["name"] for item in (*segments, *auxiliaries)]
+    if not segments or len(names) < 2 or len(set(names)) != len(names):
+        raise ValueError("Specify at least one main tunnel and two uniquely named models in total")
     sources = {path.resolve(), landxml_path.resolve()}
     if glb_path and report_path and glb_path.resolve() == report_path.resolve():
         raise ValueError("--glb and --report must use different output paths")
@@ -74,34 +79,35 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
         keyframes = _section_keyframes(spec, path.parent, sources, start, end)
         frame = alignment.sample(start, end, max_step, [keyframe.station for keyframe in keyframes])
         inputs.append((spec["name"], alignment, frame, keyframes))
+    main_by_name = {name: (alignment, frame[0]) for name, alignment, frame, _ in inputs}
+    additional_inputs = []
+    connections = {}
+    for spec in auxiliaries:
+        parent_name = spec["connection"]["tunnel"]
+        if parent_name not in main_by_name:
+            raise ValueError(f"{spec['name']}: connection tunnel must name a main tunnel")
+        axis, connection = place_auxiliary(spec, *main_by_name[parent_name])
+        keyframes = ([shaft_section(spec)] if axis.vertical
+                     else _section_keyframes(spec, path.parent, sources, 0, axis.length))
+        frame = axis.sample(max_step, [keyframe.station for keyframe in keyframes])
+        additional_inputs.append((axis.name, axis, frame, keyframes))
+        connections[axis.name] = connection
     _output(glb_path, sources)
     _output(report_path, sources)
 
-    axes = np.vstack([entry[2][1] for entry in inputs])
+    axes = np.vstack([entry[2][1] for entry in (*inputs, *additional_inputs)])
     origin = (axes.min(axis=0) + axes.max(axis=0)) / 2
     tunnels = [build_tunnel(*entry, origin) for entry in inputs]
-    status, distance, points = compare(*tunnels)
-    witnesses = []
-    for tunnel, point in zip(tunnels, points):
-        station, displayed = tunnel.station_at(point)
-        witnesses.append({
-            "tunnel": tunnel.name,
-            "alignment": tunnel.alignment.name,
-            "internal_station_m": station,
-            "displayed_station_m": displayed,
-            "point_enz_m": (point + origin).tolist(),
-            "alignment_elevation_m": float(tunnel.alignment.profile.at(station)),
-        })
-    elevation_difference = witnesses[0]["alignment_elevation_m"] - witnesses[1]["alignment_elevation_m"]
-    upper = None if abs(elevation_difference) <= 1e-6 else tunnels[int(elevation_difference < 0)].name
+    tunnels.extend(sweep_tunnel(*entry, origin, vertical=entry[1].vertical)
+                   for entry in additional_inputs)
+    primary, checks, points = validate_pairs(tunnels, connections, origin)
     report = {
-        "result": status,
-        "minimum_clearance_m": distance,
-        "witnesses": witnesses,
-        "upper_alignment_at_witness": upper,
+        **primary,
         "model_origin_enz_m": origin.tolist(),
         "maximum_station_step_m": max_step,
     }
+    if connections or len(checks) > 1:
+        report["checks"] = checks
     if glb_path:
         _write_glb(glb_path, tunnels, points)
     return report, tunnels, points
@@ -109,7 +115,8 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
 
 def _write_glb(path, tunnels, points):
     scene = trimesh.Scene()
-    for tunnel, color in zip(tunnels, ([79, 158, 219], [228, 138, 70])):
+    colors = cycle(([79, 158, 219], [228, 138, 70], [85, 190, 144], [181, 144, 220]))
+    for tunnel, color in zip(tunnels, colors):
         outer = tunnel.outer.copy()
         outer.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(
             baseColorFactor=[*color, 96], alphaMode="BLEND", roughnessFactor=1.0,

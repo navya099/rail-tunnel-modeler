@@ -1,0 +1,56 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "Main",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1000,
+      "end_station": 1100,
+      "section": "natm.json",
+      "datum": "FL"
+    }
+  ],
+  "auxiliaries": [
+    {
+      "name": "Inclined gallery",
+      "type": "inclined_gallery",
+      "connection": {"tunnel": "Main", "station": 1015, "offset_m": [0, 1], "allow_overlap_box_m": [6, 16, 14]},
+      "end_enz_m": [250015, 450027, 12],
+      "section": "gallery-box.json",
+      "datum": "FL"
+    },
+    {
+      "name": "Equipment gallery",
+      "type": "equipment_gallery",
+      "connection": {"tunnel": "Main", "station": 1033, "offset_m": [0, 1], "allow_overlap_box_m": [6, 16, 10]},
+      "end_enz_m": [250033, 449982, 1],
+      "section": "gallery-box.json",
+      "datum": "FL"
+    },
+    {
+      "name": "Branch",
+      "type": "branch",
+      "connection": {"tunnel": "Main", "station": 1053, "offset_m": [0, 1], "allow_overlap_box_m": [16, 16, 12]},
+      "end_enz_m": [250066, 450020, 2],
+      "section": "gallery-box.json",
+      "datum": "FL"
+    },
+    {
+      "name": "Escape shaft",
+      "type": "escape_shaft",
+      "connection": {"tunnel": "Main", "station": 1074, "offset_m": [0, 1], "allow_overlap_box_m": [6, 6, 21]},
+      "end_elevation_m": 24,
+      "inner_diameter_m": 2,
+      "outer_diameter_m": 2.5
+    },
+    {
+      "name": "Ventilation shaft",
+      "type": "ventilation_shaft",
+      "connection": {"tunnel": "Main", "station": 1087, "offset_m": [0, 1], "allow_overlap_box_m": [6, 6, 22]},
+      "end_elevation_m": 30,
+      "inner_diameter_m": 2.4,
+      "outer_diameter_m": 3
+    }
+  ]
+}

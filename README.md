@@ -48,7 +48,7 @@ rail-tunnel-modeler examples/crossing.json --view
 
 ### 프로젝트 입력
 
-[예제 프로젝트](examples/crossing.json)처럼 LandXML 파일 하나에서 구간 두 개를 선택합니다. 각 구간에 선형 이름, 시작·종료 측점, 단면 JSON, 선형 표고가 뜻하는 단면 기준(`FL` 또는 `RL`)을 지정합니다. 종단선형이 여러 개면 `profile`을 지정합니다. 단면 파일은 기존 스냅샷 목록 또는 단면 제원 객체를 받습니다. 목록의 `snapshot_index`는 0부터 시작합니다. 상대 파일 경로는 프로젝트 JSON의 폴더를 기준으로 읽습니다.
+[예제 프로젝트](examples/crossing.json)처럼 LandXML 파일 하나에서 본선 터널 구간을 선택합니다. 간섭 검토에는 본선 하나 이상과 총 두 개 이상의 모델이 필요합니다. 각 본선 구간에 선형 이름, 시작·종료 측점, 단면 JSON, 선형 표고가 뜻하는 단면 기준(`FL` 또는 `RL`)을 지정합니다. 종단선형이 여러 개면 `profile`을 지정합니다. 단면 파일은 기존 스냅샷 목록 또는 단면 제원 객체를 받습니다. 목록의 `snapshot_index`는 0부터 시작합니다. 상대 파일 경로는 프로젝트 JSON의 폴더를 기준으로 읽습니다.
 
 현재 LandXML 입력은 미터 단위의 직선·원곡선·클로소이드 및 PVI·대칭 포물선 종단곡선을 지원합니다. 구간 입력에는 연속 측점을 사용합니다. `StaEquation`이 있으면 JSON에 연속 측점과 보정된 표기 측점을 함께 출력합니다. 두 구간의 좌표계와 표고 기준은 입력 LandXML에서 일치해야 합니다.
 
@@ -64,11 +64,30 @@ rail-tunnel-modeler examples/section-transition.json --glb outputs/transition.gl
 
 [전이 예제](examples/section-transition.json)는 2-Arch 단면을 1031m부터 1073m까지 확장하고 상부 3-Arch 정거장 구간과의 이격을 확인합니다.
 
+### 부속 갱과 접속부
+
+프로젝트 JSON의 `auxiliaries` 목록에서 본선에 접속할 부속 갱을 정의합니다. 이름은 프로젝트에서 고유해야 합니다.
+
+| 형식 | 형상 입력 |
+| --- | --- |
+| 경사갱 `inclined_gallery`, 기재갱 `equipment_gallery`, 분기터널 `branch` | 접속점에서 `end_enz_m`의 동·북·표고 좌표까지 직선으로 배치합니다. 기존 터널과 같은 `section` 또는 `sections` 및 `datum`을 사용합니다. 부속 갱 자체의 측점은 접속점부터 수평거리로 계산합니다. |
+| 대피수직구 `escape_shaft`, 환기수직구 `ventilation_shaft` | 접속점과 같은 평면 좌표에서 `end_elevation_m`까지 원형 단면을 연장합니다. `inner_diameter_m`과 `outer_diameter_m`로 직경을 지정합니다. 수직구의 측점은 접속점부터의 수직거리입니다. |
+
+`connection.tunnel`은 본선 구간 이름이고 `connection.station`은 해당 본선의 연속 측점입니다. `connection.offset_m`은 측점 위치에서 `[오른쪽 오프셋, 표고 오프셋]`이며 기본값은 `[0, 0]`입니다. `connection.allow_overlap_box_m`에는 오프셋을 반영한 접속점을 중심으로 하는 허용 상자의 동·북·표고 방향 **전체 길이**를 입력합니다.
+
+지정된 본선과 부속 갱 사이에서만 상자 안의 겹침을 허용합니다. 허용 범위 밖의 겹침은 간섭으로 보고하며, 다른 터널이나 부속 갱과의 간섭에는 허용 상자를 적용하지 않습니다. `allowed_connection`의 이격은 상자 밖에 남은 부속 갱 외곽을 기준으로 계산합니다. 상자가 부속 갱 전체를 포함하면 이격은 `null`입니다. 지정한 쌍의 외곽이 만나지 않으면 `unconnected`로 표시합니다. GLB와 뷰어에는 각 객체의 내공과 외곽이 독립된 형상으로 남습니다.
+
+```sh
+rail-tunnel-modeler examples/auxiliaries.json --glb outputs/auxiliaries.glb --report outputs/auxiliaries-report.json
+```
+
+[부속 갱 예제](examples/auxiliaries.json)는 본선 하나에 다섯 가지 부속 갱을 배치합니다. 보고서의 `checks`에는 모든 객체 쌍의 결과가 들어갑니다. 보고서 상단과 뷰어는 간섭, 미접속, 최소 이격 순으로 우선 표시할 쌍을 선택합니다.
+
 ### 모델과 결과
 
 단면은 평면선형에 직교하는 수직면에 배치합니다. 측점 간격 상한은 기본 2m이며, `--max-step`으로 바꿀 수 있습니다. 곡선에서는 회전량에 따라 구간을 추가로 나눕니다. 이격과 측점은 샘플링한 3D 형상에서 산출합니다. JSON 좌표는 미터 단위의 동·북·표고입니다. GLB는 보고서의 `model_origin_enz_m`을 뺀 로컬 좌표를 사용하며, 축은 동·표고·남 순서입니다.
 
-현재 간섭 검토는 프로젝트에 지정한 두 터널의 외곽을 대상으로 합니다. NATM은 기존 내공 계산의 평탄한 바닥 경계를 사용합니다.
+현재 간섭 검토는 프로젝트에 지정한 터널과 부속 갱의 외곽을 대상으로 합니다. NATM은 기존 내공 계산의 평탄한 바닥 경계를 사용합니다.
 
 ### 단면 계산 코드
 

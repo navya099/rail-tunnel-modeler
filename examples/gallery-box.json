@@ -1,0 +1,11 @@
+{
+  "kind": "개착 Box형",
+  "box_width": 2.4,
+  "box_height": 2.6,
+  "box_wall_t": 0.25,
+  "box_slab_t": 0.25,
+  "box_columns": 0,
+  "box_drain_w": 0,
+  "box_drain_h": 0,
+  "box_style_top": "없음"
+}

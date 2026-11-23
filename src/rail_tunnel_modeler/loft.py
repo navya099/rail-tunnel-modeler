@@ -16,6 +16,7 @@ class SectionKeyframe:
     inner: Polygon | MultiPolygon
     outer: Polygon
     datum_y: float
+    rail_offset_y: float = 0.0
 
 
 def _ordered_rings(polygon):

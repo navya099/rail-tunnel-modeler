@@ -125,7 +125,7 @@ def test_vertical_curve_and_station_equation(tmp_path):
 
 def test_multi_arch_transition_workflow(tmp_path):
     glb_path = tmp_path / "transition.glb"
-    report, (lower, upper), points = _project(EXAMPLES / "section-transition.json",
+    report, (lower, upper), points, _ = _project(EXAMPLES / "section-transition.json",
                                              glb_path=glb_path, max_step=7)
     assert report["result"] == "clear"
     assert report["minimum_clearance_m"] == pytest.approx(2.0562, abs=0.01)

@@ -78,17 +78,30 @@ class Tunnel:
 
 
 def build_tunnel(name, alignment, frame, keyframes, origin):
-    stations = frame[0]
+    min_x = min(keyframe.outer.bounds[0] for keyframe in keyframes)
+    max_x = max(keyframe.outer.bounds[2] for keyframe in keyframes)
+    check_horizontal_extent(name, alignment, frame[0], min_x, max_x)
+    return sweep_tunnel(name, alignment, frame, keyframes, origin)
+
+
+def check_horizontal_extent(name, alignment, stations, min_x, max_x):
     # At a tight curve the inside of an offset section can fold over itself.
     left = np.searchsorted(alignment.limits, stations[0], side="right") - 1
     right = np.searchsorted(alignment.limits, stations[-1], side="left")
-    min_x = min(keyframe.outer.bounds[0] for keyframe in keyframes)
-    max_x = max(keyframe.outer.bounds[2] for keyframe in keyframes)
     for element in alignment.elements[left:right]:
         for curvature in (element.k_start, element.k_end):
             if min(1 + curvature * min_x, 1 + curvature * max_x) <= 0:
                 raise ValueError(f"{name}: section crosses the center of horizontal curvature")
-    return sweep_tunnel(name, alignment, frame, keyframes, origin)
+
+
+def _lateral(headings):
+    return np.column_stack((np.sin(headings), -np.cos(headings), np.zeros(len(headings))))
+
+
+def sweep_profile(polygon, centers, headings):
+    polygon = orient_polygons(polygon)
+    rings = [np.asarray(ring.coords)[:-1] for ring in (polygon.exterior, *polygon.interiors)]
+    return _sweep([rings] * len(centers), centers, _lateral(headings), np.array([0, 0, 1]))
 
 
 def sweep_tunnel(name, axis, frame, keyframes, origin, *, vertical=False):
@@ -98,7 +111,7 @@ def sweep_tunnel(name, axis, frame, keyframes, origin, *, vertical=False):
         lateral = np.broadcast_to([1, 0, 0], centers.shape)
         up = np.array([0, 1, 0])
     else:
-        lateral = np.column_stack((np.sin(headings), -np.cos(headings), np.zeros(len(headings))))
+        lateral = _lateral(headings)
         up = np.array([0, 0, 1])
     outer, *inner = section_samples(keyframes, stations)
     return Tunnel(name, axis, stations, centers,

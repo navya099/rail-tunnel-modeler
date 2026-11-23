@@ -16,6 +16,8 @@ from .checks import validate_pairs
 from .landxml import LandXML
 from .loft import SectionKeyframe
 from .model import build_tunnel, sweep_tunnel
+from .rail_clearance import (RAIL_STYLE, check_rail_shapes, facility_shape, rail_intrusion_points,
+                             track_range, track_shapes)
 from .sections import boundaries, read_section
 
 
@@ -53,8 +55,30 @@ def _section_keyframes(spec, project_folder, sources, start, end):
         if not isfinite(datum_y):
             raise ValueError("Section datum must be finite")
         inner, outer = boundaries(section, entry.get("outer_boundary"))
-        result.append(SectionKeyframe(station, inner, outer, datum_y))
+        result.append(SectionKeyframe(station, inner, outer, datum_y, section.RL - datum_y))
     return result
+
+
+def _rail_inputs(config, main_names):
+    tracks = {}
+    for track in config.get("clearances", []):
+        host = track["tunnel"]
+        if host not in main_names:
+            raise ValueError(f"{track['name']}: clearance tunnel must name a main tunnel")
+        group = tracks.setdefault(host, {})
+        if track["name"] in group:
+            raise ValueError(f"{host}: clearance track names must be unique")
+        group[track["name"]] = track
+    facilities = {}
+    for facility in config.get("facilities", []):
+        host = facility["tunnel"]
+        if host not in tracks:
+            raise ValueError(f"{facility['name']}: facility needs a clearance track in its tunnel")
+        group = facilities.setdefault(host, {})
+        if facility["name"] in group:
+            raise ValueError(f"{host}: facility names must be unique")
+        group[facility["name"]] = facility
+    return tracks, facilities
 
 
 def _project(path, glb_path=None, report_path=None, max_step=2.0):
@@ -65,7 +89,10 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     segments = config["tunnels"]
     auxiliaries = config.get("auxiliaries", [])
     names = [item["name"] for item in (*segments, *auxiliaries)]
-    if not segments or len(names) < 2 or len(set(names)) != len(names):
+    if not segments or len(set(names)) != len(names):
+        raise ValueError("Specify at least one main tunnel and use unique model names")
+    tracks, facilities = _rail_inputs(config, {segment["name"] for segment in segments})
+    if len(names) < 2 and not tracks:
         raise ValueError("Specify at least one main tunnel and two uniquely named models in total")
     sources = {path.resolve(), landxml_path.resolve()}
     if glb_path and report_path and glb_path.resolve() == report_path.resolve():
@@ -77,7 +104,10 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
         alignment = landxml.alignment(spec["alignment"], spec.get("profile"))
         start, end = float(spec["start_station"]), float(spec["end_station"])
         keyframes = _section_keyframes(spec, path.parent, sources, start, end)
-        frame = alignment.sample(start, end, max_step, [keyframe.station for keyframe in keyframes])
+        section_stations = [keyframe.station for keyframe in keyframes]
+        for track in tracks.get(spec["name"], {}).values():
+            section_stations.extend(track_range(track, start, end))
+        frame = alignment.sample(start, end, max_step, section_stations)
         inputs.append((spec["name"], alignment, frame, keyframes))
     main_by_name = {name: (alignment, frame[0]) for name, alignment, frame, _ in inputs}
     additional_inputs = []
@@ -100,7 +130,12 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     tunnels = [build_tunnel(*entry, origin) for entry in inputs]
     tunnels.extend(sweep_tunnel(*entry, origin, vertical=entry[1].vertical)
                    for entry in additional_inputs)
-    primary, checks, points = validate_pairs(tunnels, connections, origin)
+    if len(tunnels) > 1:
+        primary, checks, points = validate_pairs(tunnels, connections, origin)
+    else:
+        primary = {"result": "not_checked", "minimum_clearance_m": None, "witnesses": [],
+                   "upper_alignment_at_witness": None}
+        checks, points = [], np.empty((0, 3))
     report = {
         **primary,
         "model_origin_enz_m": origin.tolist(),
@@ -108,24 +143,43 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     }
     if connections or len(checks) > 1:
         report["checks"] = checks
+    rail_shapes = []
+    for tunnel, (name, _, frame, keyframes) in zip(tunnels, inputs):
+        for track in tracks.get(name, {}).values():
+            rail_shapes.extend(track_shapes(track, tunnel, frame, keyframes))
+        for facility in facilities.get(name, {}).values():
+            rail_shapes.append(facility_shape(facility, tunnel, origin))
+    if rail_shapes:
+        report["rail_checks"] = check_rail_shapes(rail_shapes, {t.name: t for t in tunnels}, origin)
     if glb_path:
-        _write_glb(glb_path, tunnels, points)
-    return report, tunnels, points
+        _write_glb(glb_path, tunnels, points, rail_shapes, rail_intrusion_points(report))
+    return report, tunnels, points, rail_shapes
 
 
-def _write_glb(path, tunnels, points):
+def _colored_mesh(mesh, color):
+    result = mesh.copy()
+    result.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(
+        baseColorFactor=color, alphaMode="BLEND" if color[3] < 255 else "OPAQUE", roughnessFactor=1.0,
+    ))
+    return result
+
+
+def _write_glb(path, tunnels, points, rail_shapes, rail_points):
     scene = trimesh.Scene()
     colors = cycle(([79, 158, 219], [228, 138, 70], [85, 190, 144], [181, 144, 220]))
     for tunnel, color in zip(tunnels, colors):
-        outer = tunnel.outer.copy()
-        outer.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(
-            baseColorFactor=[*color, 96], alphaMode="BLEND", roughnessFactor=1.0,
-        ))
+        outer = _colored_mesh(tunnel.outer, [*color, 96])
         scene.add_geometry(outer, geom_name=f"{tunnel.name}/outer")
         for i, part in enumerate(tunnel.inner, 1):
-            part.visual.face_colors = [*color, 255]
-            scene.add_geometry(part, geom_name=f"{tunnel.name}/inner/{i}")
-    for i, point in enumerate(points if np.linalg.norm(points[0] - points[1]) > 1e-8 else points[:1], 1):
+            inner = _colored_mesh(part, [*color, 32 if rail_shapes else 255])
+            scene.add_geometry(inner, geom_name=f"{tunnel.name}/inner/{i}")
+    for shape in rail_shapes:
+        color, _ = RAIL_STYLE[shape.kind]
+        mesh = _colored_mesh(shape.mesh, color)
+        scene.add_geometry(mesh, geom_name=f"{shape.tunnel}/{shape.kind}/{shape.name}")
+    if len(points) == 2 and np.linalg.norm(points[0] - points[1]) <= 1e-8:
+        points = points[:1]
+    for i, point in enumerate([*points, *rail_points], 1):
         marker = trimesh.creation.icosphere(subdivisions=2, radius=0.25)
         marker.apply_translation(point)
         marker.visual.face_colors = [255, 40, 70, 255]
@@ -151,13 +205,13 @@ def main(argv=None):
                 if exc.name != "pyvista":
                     raise
                 raise ValueError('Install the viewer with pip install ".[viewer]"') from exc
-        report, meshes, points = _project(args.project, args.glb, args.report, args.max_step)
+        report, meshes, points, rail_shapes = _project(args.project, args.glb, args.report, args.max_step)
         result = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
         if args.report:
             args.report.write_text(result + "\n", encoding="utf-8")
         print(result)
         if args.view:
-            show(meshes, points, report)
+            show(meshes, points, report, rail_shapes)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, ParseError, DefusedXmlException) as exc:
         parser.exit(2, f"Error: {exc}\n")
     return 0

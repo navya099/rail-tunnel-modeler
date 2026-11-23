@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from xml.etree.ElementTree import fromstring
@@ -6,12 +7,14 @@ from xml.etree.ElementTree import fromstring
 import numpy as np
 import pytest
 import trimesh
+from shapely.geometry import box
 
-from rail_tunnel_modeler.cli import main
+from rail_tunnel_modeler.cli import _project, main
 from rail_tunnel_modeler.landxml import LandXML, _plan_element
+from rail_tunnel_modeler.loft import SectionKeyframe, section_samples
 from rail_tunnel_modeler.model import compare
 from rail_tunnel_modeler.section_core.models import TunnelParams
-from rail_tunnel_modeler.sections import boundaries
+from rail_tunnel_modeler.sections import boundaries, read_section
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -118,3 +121,62 @@ def test_vertical_curve_and_station_equation(tmp_path):
     assert alignment.displayed_station(1049) == 1049
     assert alignment.displayed_station(1050) == 1200
     assert alignment.displayed_station(1090) == 1240
+
+
+def test_multi_arch_transition_workflow(tmp_path):
+    glb_path = tmp_path / "transition.glb"
+    report, (lower, upper), points = _project(EXAMPLES / "section-transition.json",
+                                             glb_path=glb_path, max_step=7)
+    assert report["result"] == "clear"
+    assert report["minimum_clearance_m"] == pytest.approx(2.0562, abs=0.01)
+    assert np.linalg.norm(np.subtract(*points)) == pytest.approx(report["minimum_clearance_m"])
+    assert {1031, 1073}.issubset(lower.stations)
+    assert len(lower.inner) == 2
+    assert len(upper.inner) == 3
+    assert all(mesh.is_volume for tunnel in (lower, upper) for mesh in (tunnel.outer, *tunnel.inner))
+
+    rings = lower.outer.vertices.reshape(len(lower.stations), -1, 3)
+    start = np.where(lower.stations == 1031)[0][0]
+    end = np.where(lower.stations == 1073)[0][0]
+    assert rings[0, :, 1:] == pytest.approx(rings[start, :, 1:])
+    assert rings[-1, :, 1:] == pytest.approx(rings[end, :, 1:])
+    middle = (start + end) // 2
+    assert lower.stations[middle] == pytest.approx(1052)
+    assert rings[middle, :, 1:] == pytest.approx((rings[start, :, 1:] + rings[end, :, 1:]) / 2)
+    glb = trimesh.load_scene(glb_path)
+    assert {"2-Arch/inner/2", "3-Arch/inner/3"}.issubset(glb.geometry)
+    assert all(solid.is_volume for solid in glb.geometry.values())
+
+
+def test_multi_arch_geometry_rejects_overlap_and_accepts_defined_envelope():
+    params = read_section(EXAMPLES / "multi-arch.json", 2)
+    inner, outer = boundaries(params)
+    assert len(inner.geoms) == 3
+    assert outer.equals(outer.convex_hull)
+    custom = box(-22, -2, 22, 12)
+    assert boundaries(params, list(custom.exterior.coords))[1].equals(custom)
+    with pytest.raises(ValueError, match="inner inside outer"):
+        boundaries(params, list(box(-1, -1, 1, 1).exterior.coords))
+    with pytest.raises(ValueError, match="arch interiors overlap"):
+        boundaries(replace(params, gap_L=0.5, gap_R=0.5))
+
+
+def test_section_transition_matches_different_rings_and_datums():
+    start_inner, start_outer = boundaries(TunnelParams())
+    end_inner, end_outer = box(-4, 2, 4, 8), box(-4.4, 1.6, 4.4, 8.4)
+    outer, inner = section_samples(
+        [SectionKeyframe(0, start_inner, start_outer, 0),
+         SectionKeyframe(20, end_inner, end_outer, 2)], [0, 4, 20]
+    )
+    assert len(outer[0][0]) == len(outer[2][0])
+    assert inner[2][0][:, 1].min() == pytest.approx(0)
+    assert inner[2][0][:, 1].max() == pytest.approx(6)
+    assert outer[1][0] == pytest.approx(0.8 * outer[0][0] + 0.2 * outer[2][0])
+
+
+def test_transition_rejects_changed_compartment_count():
+    params = read_section(EXAMPLES / "box.json", 0)
+    single = boundaries(replace(params, box_columns=0))
+    double = boundaries(params)
+    with pytest.raises(ValueError, match="same number of compartments"):
+        section_samples([SectionKeyframe(0, *single, 0), SectionKeyframe(20, *double, 0)], [0, 20])

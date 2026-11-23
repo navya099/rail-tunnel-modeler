@@ -5,30 +5,36 @@ from dataclasses import dataclass
 import fcl
 import numpy as np
 import trimesh
-from shapely import constrained_delaunay_triangles, orient_polygons, set_precision
+from shapely import constrained_delaunay_triangles, orient_polygons
+from shapely.geometry import Polygon
+
+from .loft import section_samples
 
 
-def _sweep(polygon, centers, headings, datum_y):
-    polygon = orient_polygons(set_precision(polygon, 1e-8))
-    if polygon.is_empty or polygon.geom_type != "Polygon":
-        raise ValueError("Section boundary collapsed or split during triangulation")
-    rings = [np.asarray(ring.coords)[:-1] for ring in (polygon.exterior, *polygon.interiors)]
-    section = np.vstack(rings)
-    vertex_index = {tuple(point): i for i, point in enumerate(section)}
-    if len(vertex_index) != len(section):
-        raise ValueError("Section boundary rings share vertices")
+def _cap(rings):
+    polygon = Polygon(rings[0], rings[1:])
+    vertex_index = {tuple(point): i for i, point in enumerate(np.vstack(rings))}
     cap = np.array([
         [vertex_index[point] for point in triangle.exterior.coords[:-1]]
         for triangle in orient_polygons(constrained_delaunay_triangles(polygon)).geoms
     ])
     if not len(cap):
         raise ValueError("Unable to triangulate section boundary")
-    size = len(section)
+    return cap
+
+
+def _sweep(samples, centers, headings):
+    rings = samples[0]
+    if all(frame is rings for frame in samples):
+        section = np.vstack(rings)[None, :, :]
+    else:
+        section = np.stack([np.vstack(frame) for frame in samples])
+    size = section.shape[1]
     # Civil cross sections remain vertical and normal to the horizontal bearing.
     right = np.column_stack((np.sin(headings), -np.cos(headings), np.zeros(len(headings))))
     vertical = np.array([0, 0, 1])
-    vertices = (centers[:, None, :] + right[:, None, :] * section[None, :, :1]
-                + vertical * (section[None, :, 1:2] - datum_y))
+    vertices = (centers[:, None, :] + right[:, None, :] * section[:, :, :1]
+                + vertical * section[:, :, 1:2])
 
     current = np.arange(size)
     following = current + 1
@@ -41,7 +47,9 @@ def _sweep(polygon, centers, headings, datum_y):
                             np.column_stack((j, i + size, j + size))))
     strips = sides[None, :, :] + np.arange(len(centers) - 1)[:, None, None] * size
     last = (len(centers) - 1) * size
-    faces = np.vstack((cap, strips.reshape(-1, 3), cap[:, ::-1] + last))
+    first_cap = _cap(rings)
+    last_cap = first_cap if samples[-1] is rings else _cap(samples[-1])
+    faces = np.vstack((first_cap, strips.reshape(-1, 3), last_cap[:, ::-1] + last))
     mesh = trimesh.Trimesh(vertices=vertices.reshape(-1, 3), faces=faces, process=False)
     mesh.fix_normals()
     if not mesh.is_volume:
@@ -70,22 +78,22 @@ class Tunnel:
         return float(position), float(self.alignment.displayed_station(position))
 
 
-def build_tunnel(name, alignment, frame, boundaries, datum_y, origin):
+def build_tunnel(name, alignment, frame, keyframes, origin):
     stations, centers, headings = frame
     centers = centers - origin
-    inner, outer = boundaries
     # At a tight curve the inside of an offset section can fold over itself.
     left = np.searchsorted(alignment.limits, stations[0], side="right") - 1
     right = np.searchsorted(alignment.limits, stations[-1], side="left")
-    min_x, _, max_x, _ = outer.bounds
+    min_x = min(keyframe.outer.bounds[0] for keyframe in keyframes)
+    max_x = max(keyframe.outer.bounds[2] for keyframe in keyframes)
     for element in alignment.elements[left:right]:
         for curvature in (element.k_start, element.k_end):
             if min(1 + curvature * min_x, 1 + curvature * max_x) <= 0:
                 raise ValueError(f"{name}: section crosses the center of horizontal curvature")
-    inner_parts = inner.geoms if inner.geom_type == "MultiPolygon" else [inner]
+    outer, *inner = section_samples(keyframes, stations)
     return Tunnel(name, alignment, stations, centers,
-                  [_sweep(part, centers, headings, datum_y) for part in inner_parts],
-                  _sweep(outer, centers, headings, datum_y))
+                  [_sweep(part, centers, headings) for part in inner],
+                  _sweep(outer, centers, headings))
 
 
 def _collision_object(mesh):

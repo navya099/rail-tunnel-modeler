@@ -1,4 +1,4 @@
-"""Run the first workflow locally from a project JSON file."""
+"""Model two tunnel segments and check clearance from a project JSON file."""
 
 import argparse
 import json
@@ -11,6 +11,7 @@ import trimesh
 from defusedxml.common import DefusedXmlException
 
 from .landxml import LandXML
+from .loft import SectionKeyframe
 from .model import build_tunnel, compare
 from .sections import boundaries, read_section
 
@@ -18,6 +19,39 @@ from .sections import boundaries, read_section
 def _output(path, source_files):
     if path is not None and path.resolve() in source_files:
         raise ValueError(f"{path}: output path would overwrite an input file")
+
+
+def _section_keyframes(spec, project_folder, sources, start, end):
+    datum = spec["datum"]
+    if datum not in {"FL", "RL"}:
+        raise ValueError("datum must be FL or RL")
+    if "sections" in spec:
+        if {"section", "snapshot_index", "outer_boundary"} & spec.keys():
+            raise ValueError("Use section or sections, and put section options on each keyframe")
+        entries = spec["sections"]
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("sections must be a nonempty list of station keyframes")
+        stations = [float(entry["station"]) for entry in entries]
+        if (any(not start <= station <= end for station in stations)
+                or any(b - a <= 1e-7 for a, b in zip(stations, stations[1:]))):
+            raise ValueError("Section keyframe stations must increase within the modeled interval")
+    else:
+        entries, stations = [spec], [start]
+
+    result = []
+    for entry, station in zip(entries, stations):
+        section_path = project_folder / entry["section"]
+        sources.add(section_path.resolve())
+        index = entry.get("snapshot_index", 0)
+        if type(index) is not int:
+            raise ValueError("snapshot_index must be an integer")
+        section = read_section(section_path, index)
+        datum_y = getattr(section, datum)
+        if not isfinite(datum_y):
+            raise ValueError("Section datum must be finite")
+        inner, outer = boundaries(section, entry.get("outer_boundary"))
+        result.append(SectionKeyframe(station, inner, outer, datum_y))
+    return result
 
 
 def _project(path, glb_path=None, report_path=None, max_step=2.0):
@@ -36,20 +70,10 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     inputs = []
     for spec in segments:
         alignment = landxml.alignment(spec["alignment"], spec.get("profile"))
-        frame = alignment.sample(float(spec["start_station"]), float(spec["end_station"]), max_step)
-        section_path = path.parent / spec["section"]
-        sources.add(section_path.resolve())
-        index = spec.get("snapshot_index", 0)
-        if type(index) is not int:
-            raise ValueError("snapshot_index must be an integer")
-        section = read_section(section_path, index)
-        datum = spec["datum"]
-        if datum not in {"FL", "RL"}:
-            raise ValueError("datum must be FL or RL")
-        datum_y = getattr(section, datum)
-        if not isfinite(datum_y):
-            raise ValueError("Section datum must be finite")
-        inputs.append((spec["name"], alignment, frame, boundaries(section), datum_y))
+        start, end = float(spec["start_station"]), float(spec["end_station"])
+        keyframes = _section_keyframes(spec, path.parent, sources, start, end)
+        frame = alignment.sample(start, end, max_step, [keyframe.station for keyframe in keyframes])
+        inputs.append((spec["name"], alignment, frame, keyframes))
     _output(glb_path, sources)
     _output(report_path, sources)
 

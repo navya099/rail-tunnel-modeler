@@ -1,0 +1,27 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "2-Arch",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1010,
+      "end_station": 1090,
+      "datum": "FL",
+      "sections": [
+        {"station": 1031, "section": "multi-arch.json", "snapshot_index": 0},
+        {"station": 1073, "section": "multi-arch.json", "snapshot_index": 1}
+      ]
+    },
+    {
+      "name": "3-Arch",
+      "alignment": "Upper",
+      "profile": "Design",
+      "start_station": 2010,
+      "end_station": 2090,
+      "section": "multi-arch.json",
+      "snapshot_index": 2,
+      "datum": "FL"
+    }
+  ]
+}

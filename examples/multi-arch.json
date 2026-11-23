@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "2-Arch (분기부)",
+    "note": "전이 시작 단면",
+    "payload": {
+      "kind": "2-Arch (분기부)",
+      "pillar_w": 1.0,
+      "arches": [{}, {}]
+    }
+  },
+  {
+    "kind": "2-Arch (분기부)",
+    "note": "전이 종료 단면",
+    "payload": {
+      "kind": "2-Arch (분기부)",
+      "pillar_w": 2.6,
+      "arches": [{"R1_Y": 1.872}, {"R1_Y": 1.872}]
+    }
+  },
+  {
+    "kind": "3-Arch (정거장)",
+    "note": "중앙 아치와 양측 아치 간격을 확보한 정거장 단면",
+    "payload": {
+      "kind": "3-Arch (정거장)",
+      "gap_L": 1.6,
+      "gap_R": 1.6,
+      "arches": [
+        {"R1": 9.0, "top_angle": 100.0, "R2": 7.0, "r2_angle": 70.0, "R1_Y": 2.0},
+        {"R1": 5.5, "top_angle": 85.0, "R2": 4.5, "r2_angle": 65.0, "R1_Y": 1.5},
+        {"R1": 5.5, "top_angle": 85.0, "R2": 4.5, "r2_angle": 65.0, "R1_Y": 1.5}
+      ]
+    }
+  }
+]

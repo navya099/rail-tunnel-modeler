@@ -170,7 +170,7 @@ class Alignment:
         internal, ahead = self.equations[index]
         return ahead + station - internal
 
-    def sample(self, start, end, max_step):
+    def sample(self, start, end, max_step, section_stations=()):
         if not (self.limits[0] - 1e-7 <= start < end <= self.limits[-1] + 1e-7
                 and self.profile.stations[0] - 1e-7 <= start < end <= self.profile.stations[-1] + 1e-7):
             raise ValueError(f"{self.name}: segment stations must be within both plan and profile")
@@ -184,8 +184,11 @@ class Alignment:
                 turn = self.elements[i].azimuth - before.at(before.length)[1]
                 if abs((turn + pi) % (2 * pi) - pi) > 1e-3:
                     raise ValueError(f"{self.name}: horizontal tangent changes abruptly at {boundary:.3f} m")
-        limits = sorted({start, end} | {s for s in [*self.limits, *self.profile.breakpoints()]
-                                       if start + 1e-7 < s < end - 1e-7})
+        required = [start, *(s for s in section_stations if start + 1e-7 < s < end - 1e-7), end]
+        limits = sorted(set(required) | {
+            s for s in [*self.limits, *self.profile.breakpoints()]
+            if start < s < end and all(abs(s - fixed) > 1e-7 for fixed in required)
+        })
         stations = [start]
         for left, right in zip(limits, limits[1:]):
             if right - left <= 1e-7:

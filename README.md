@@ -31,10 +31,13 @@ Python 3.11 이상에서 가상환경을 활성화한 뒤 설치합니다. 아�
 
 ```sh
 python -m pip install .
-rail-tunnel-modeler examples/crossing.json --report crossing-report.json --glb crossing.glb
+mkdir outputs
+rail-tunnel-modeler examples/crossing.json --report outputs/crossing-report.json --glb outputs/crossing.glb
 ```
 
 예제에서 Box 선형은 NATM 선형보다 높고, 외곽 사이의 최소 이격은 약 **2.462m**입니다. 명령은 결과를 터미널에 출력합니다. `--report`와 `--glb`를 주면 위치와 측점이 담긴 JSON 및 내공·외곽·검토 위치가 담긴 GLB도 저장합니다. 교차 시에는 대표 접촉 위치와 이격 0m를 반환합니다. 한 터널이 다른 터널에 완전히 포함되면 포함된 터널 안의 대표 위치를 반환합니다.
+
+Git은 저장소 루트의 `outputs/`를 무시합니다. 생성한 보고서 JSON과 GLB는 이 폴더에 저장하고, `examples/`의 입력 JSON은 Git으로 관리합니다.
 
 설치 옵션 `viewer`를 사용하면 로컬 3D 창에서 모델과 결과를 확인할 수 있습니다.
 
@@ -56,7 +59,7 @@ rail-tunnel-modeler examples/crossing.json --view
 전이구간은 터널의 `section` 대신 `sections` 목록에 `station`, `section` 및 필요한 경우 `snapshot_index`와 `outer_boundary`를 넣어 지정합니다. 측점은 모델링 구간 안에서 오름차순이어야 합니다. 지정한 측점 사이에서는 내공과 외곽을 선형 보간하고, 첫 단면과 마지막 단면은 모델링 구간의 양 끝까지 유지합니다. 전이 양쪽의 내공 구획 수와 경계별 구멍 수가 같아야 합니다. 예를 들어 2-Arch의 폭 변경은 지원하며, 내공이 둘로 갈라지는 접속 형상은 분기 모델링에서 다룹니다.
 
 ```sh
-rail-tunnel-modeler examples/section-transition.json --glb transition.glb --report transition-report.json
+rail-tunnel-modeler examples/section-transition.json --glb outputs/transition.glb --report outputs/transition-report.json
 ```
 
 [전이 예제](examples/section-transition.json)는 2-Arch 단면을 1031m부터 1073m까지 확장하고 상부 3-Arch 정거장 구간과의 이격을 확인합니다.

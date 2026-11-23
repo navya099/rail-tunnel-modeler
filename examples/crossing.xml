@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Units><Metric linearUnit="meter"/></Units>
+  <Alignments>
+    <Alignment name="Lower" staStart="1000" length="100">
+      <CoordGeom>
+        <Line length="100"><Start>450000 250000</Start><End>450000 250100</End></Line>
+      </CoordGeom>
+      <Profile><ProfAlign name="Design"><PVI>1000 0</PVI><PVI>1100 0</PVI></ProfAlign></Profile>
+    </Alignment>
+    <Alignment name="Upper" staStart="2000" length="100">
+      <CoordGeom>
+        <Line length="100"><Start>449950 250050</Start><End>450050 250050</End></Line>
+      </CoordGeom>
+      <Profile><ProfAlign name="Design"><PVI>2000 12</PVI><PVI>2100 12</PVI></ProfAlign></Profile>
+    </Alignment>
+  </Alignments>
+</LandXML>

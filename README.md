@@ -24,3 +24,37 @@ Python 계산 엔진과 3D 뷰어를 분리합니다. 지형은 타일 단위로
 1. 기존 스냅샷에서 단일 NATM과 개착 Box 단면을 복원합니다.
 2. LandXML 선형의 지정 구간에 두 단면 형식을 배치해 내공과 외곽을 생성합니다.
 3. 상·하부 교차터널의 간섭 위치와 최소 이격, 양쪽 터널의 측점을 표시합니다.
+
+## 첫 구현 실행
+
+Python 3.11 이상에서 가상환경을 활성화한 뒤 설치합니다. 아래 예제는 가상의 직교 선형 두 개에 NATM과 개착 Box를 배치합니다.
+
+```sh
+python -m pip install .
+rail-tunnel-modeler examples/crossing.json --report crossing-report.json --glb crossing.glb
+```
+
+예제에서 Box 선형은 NATM 선형보다 높고, 외곽 사이의 최소 이격은 약 **2.462m**입니다. 명령은 결과를 터미널에 출력합니다. `--report`와 `--glb`를 주면 위치와 측점이 담긴 JSON 및 내공·외곽·검토 위치가 담긴 GLB도 저장합니다. 교차 시에는 대표 접촉 위치와 이격 0m를 반환합니다. 한 터널이 다른 터널에 완전히 포함되면 포함된 터널 안의 대표 위치를 반환합니다.
+
+설치 옵션 `viewer`를 사용하면 로컬 3D 창에서 모델과 결과를 확인할 수 있습니다.
+
+```sh
+python -m pip install ".[viewer]"
+rail-tunnel-modeler examples/crossing.json --view
+```
+
+### 프로젝트 입력
+
+[예제 프로젝트](examples/crossing.json)처럼 LandXML 파일 하나에서 구간 두 개를 선택합니다. 각 구간에 선형 이름, 시작·종료 측점, 단면 JSON, 선형 표고가 뜻하는 단면 기준(`FL` 또는 `RL`)을 지정합니다. 종단선형이 여러 개면 `profile`을 지정합니다. 단면 파일은 기존 스냅샷 목록 또는 단면 제원 객체를 받습니다. 목록의 `snapshot_index`는 0부터 시작합니다. 상대 파일 경로는 프로젝트 JSON의 폴더를 기준으로 읽습니다.
+
+현재 LandXML 입력은 미터 단위의 직선·원곡선·클로소이드 및 PVI·대칭 포물선 종단곡선을 지원합니다. 구간 입력에는 연속 측점을 사용합니다. `StaEquation`이 있으면 JSON에 연속 측점과 보정된 표기 측점을 함께 출력합니다. 두 구간의 좌표계와 표고 기준은 입력 LandXML에서 일치해야 합니다.
+
+### 모델과 결과
+
+단면은 평면선형에 직교하는 수직면에 배치합니다. 측점 간격 상한은 기본 2m이며, `--max-step`으로 바꿀 수 있습니다. 곡선에서는 회전량에 따라 구간을 추가로 나눕니다. 이격과 측점은 샘플링한 3D 형상에서 산출합니다. JSON 좌표는 미터 단위의 동·북·표고입니다. GLB는 보고서의 `model_origin_enz_m`을 뺀 로컬 좌표를 사용하며, 축은 동·표고·남 순서입니다.
+
+이번 구현은 두 구간의 일정 단면과 외곽 간섭을 다룹니다. 단면 전이, 다중 아치, 지형 타일과 구간 캐시, 부속 갱 및 내부 시설물 간섭은 후속 범위입니다. NATM은 기존 내공 계산의 평탄한 바닥 경계를 사용합니다.
+
+### 단면 계산 코드
+
+`src/rail_tunnel_modeler/section_core`는 기존 `tunnel_designer`의 `constants.py`, `models.py`, `geometry.py`, `snapshot.py`를 가져온 것입니다. 스냅샷 모듈의 import 경로를 새 패키지에 맞췄습니다. NATM 외곽을 이어 붙이고 입력 단면을 검증하는 코드는 `sections.py`에 있습니다. [원본 커밋](https://github.com/navya099/test/tree/907165108114454e4cb56026a554e37f4253316a/tunnel_designer)

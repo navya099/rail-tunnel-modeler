@@ -1,0 +1,24 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "NATM",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1010,
+      "end_station": 1090,
+      "section": "natm.json",
+      "snapshot_index": 0,
+      "datum": "FL"
+    },
+    {
+      "name": "Box",
+      "alignment": "Upper",
+      "profile": "Design",
+      "start_station": 2010,
+      "end_station": 2090,
+      "section": "box.json",
+      "datum": "FL"
+    }
+  ]
+}

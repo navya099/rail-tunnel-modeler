@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rail-tunnel-modeler"
+version = "0.1.0"
+description = "Conceptual railway tunnel modeling and clearance checks"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "defusedxml>=0.7",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "shapely>=2.1",
+    "trimesh>=4.8",
+    "python-fcl>=0.7",
+    "rtree>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+viewer = ["pyvista>=0.45"]
+
+[project.scripts]
+rail-tunnel-modeler = "rail_tunnel_modeler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -17,6 +17,8 @@ from .checks import validate_pairs
 from .landxml import LandXML
 from .loft import SectionKeyframe
 from .model import Tunnel, build_tunnel, sweep_tunnel
+from .obstacles import (OBSTACLE_COLOR, Obstacle, check_obstacles, load_obstacles, obstacle_files,
+                        obstacle_witness_lines)
 from .portals import PortalModel, build_portals, prepare_portal
 from .rail_clearance import (RAIL_STYLE, RailShape, check_rail_shapes, facility_shape, rail_intrusion_points,
                              track_range, track_shapes)
@@ -32,6 +34,7 @@ class ProjectResult:
     rail_shapes: list[RailShape]
     terrain: Terrain | None
     portals: list[PortalModel]
+    obstacles: list[Obstacle]
 
 
 def _output(path, source_files):
@@ -103,16 +106,17 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     auxiliaries = config.get("auxiliaries", [])
     terrain_spec = config.get("terrain")
     portal_specs = config.get("portals", [])
+    obstacle_specs = config.get("obstacles", [])
     names = [item["name"] for item in (*segments, *auxiliaries)]
     if not segments or len(set(names)) != len(names):
         raise ValueError("Specify at least one main tunnel and use unique model names")
     tracks, facilities = _rail_inputs(config, {segment["name"] for segment in segments})
-    if len(names) < 2 and not tracks and terrain_spec is None and not portal_specs:
-        raise ValueError("Provide a second tunnel, a clearance track, terrain, or portals for a single tunnel model")
+    if len(names) < 2 and not (tracks or terrain_spec is not None or portal_specs or obstacle_specs):
+        raise ValueError("A single tunnel needs a clearance track, terrain, portals, or obstacles")
     if (len({spec["name"] for spec in portal_specs}) != len(portal_specs)
             or len({(spec["tunnel"], spec["end"]) for spec in portal_specs}) != len(portal_specs)):
         raise ValueError("Portals require unique names and distinct tunnel ends")
-    sources = {path.resolve(), landxml_path.resolve()}
+    sources = {path.resolve(), landxml_path.resolve()} | obstacle_files(obstacle_specs, path.parent)
     if terrain_spec is not None and "path" in terrain_spec:
         sources.add((path.parent / terrain_spec["path"]).resolve())
     if glb_path and report_path and glb_path.resolve() == report_path.resolve():
@@ -188,7 +192,10 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     portals = build_portals(portal_inputs, cut_terrain, origin)
     if portals:
         report["portals"] = [portal.report for portal in portals]
-    result = ProjectResult(report, tunnels, points, rail_shapes, terrain, portals)
+    obstacles = load_obstacles(obstacle_specs, path.parent, origin, config.get("obstacle_clearance_m", 0))
+    if obstacles:
+        report["obstacle_checks"] = check_obstacles(tunnels, obstacles, origin)
+    result = ProjectResult(report, tunnels, points, rail_shapes, terrain, portals, obstacles)
     if glb_path:
         _write_glb(glb_path, result)
     return result
@@ -224,10 +231,15 @@ def _write_glb(path, result):
         for side, slope in portal.slopes.items():
             scene.add_geometry(_colored_mesh(slope, [177, 107, 70, 255]),
                                geom_name=f"Portal/{portal.name}/Cut/{side}")
+    for obstacle in result.obstacles:
+        for i, mesh in enumerate(obstacle.meshes, 1):
+            scene.add_geometry(_colored_mesh(mesh, OBSTACLE_COLOR), geom_name=f"Obstacle/{obstacle.name}/{i}")
     points = result.points
     if len(points) == 2 and np.linalg.norm(points[0] - points[1]) <= 1e-8:
         points = points[:1]
-    for i, point in enumerate([*points, *rail_intrusion_points(result.report)], 1):
+    obstacle_points = [point for line in obstacle_witness_lines(result.report)
+                       for point in (line[:1] if np.linalg.norm(line[0] - line[1]) <= 1e-8 else line)]
+    for i, point in enumerate([*points, *rail_intrusion_points(result.report), *obstacle_points], 1):
         marker = trimesh.creation.icosphere(subdivisions=2, radius=0.25)
         marker.apply_translation(point)
         marker.visual.face_colors = [255, 40, 70, 255]

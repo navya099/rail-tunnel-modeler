@@ -5,6 +5,7 @@ from itertools import cycle
 import numpy as np
 import pyvista as pv
 
+from .obstacles import OBSTACLE_COLOR, obstacle_witness_lines
 from .rail_clearance import RAIL_STYLE, rail_intrusion_points
 
 
@@ -27,12 +28,16 @@ def show(project):
         plotter.add_mesh(_polydata(shape.mesh), color=np.array(color[:3]) / 255.0,
                          opacity=color[3] / 255.0, label=label if label not in labels_used else None)
         labels_used.add(label)
-    markers = [*points, *rail_intrusion_points(report)]
+    obstacle_lines = obstacle_witness_lines(report)
+    markers = [*points, *rail_intrusion_points(report), *(point for line in obstacle_lines for point in line)]
     if markers:
         plotter.add_points(np.unique(markers, axis=0), color="#ff4866", point_size=14,
                            render_points_as_spheres=True)
     if len(points) == 2 and np.linalg.norm(points[0] - points[1]) > 1e-8:
         plotter.add_mesh(pv.Line(*points), color="#ff4866", line_width=4)
+    for line in obstacle_lines:
+        if np.linalg.norm(line[0] - line[1]) > 1e-8:
+            plotter.add_mesh(pv.Line(*line), color="#ff4866", line_width=4)
     distance = report["minimum_clearance_m"]
     labels = []
     if report["result"] != "not_checked":
@@ -52,6 +57,14 @@ def show(project):
         for slope in portal.slopes.values():
             plotter.add_mesh(_polydata(slope), color="#b16b46", label=cut_label)
             cut_label = None
+    if project.obstacles:
+        obstacle_label = "External objects"
+        color = np.array(OBSTACLE_COLOR[:3]) / 255.0
+        for obstacle in project.obstacles:
+            for mesh in obstacle.meshes:
+                plotter.add_mesh(_polydata(mesh), color=color, opacity=0.86, label=obstacle_label)
+                obstacle_label = None
+        labels.append(f"External conflicts: {len(obstacle_lines)}")
     if project.terrain:
         terrain_actors = []
         for index, tile in enumerate(project.terrain.tiles):
@@ -69,7 +82,7 @@ def show(project):
         labels.append("T: Toggle terrain")
     if labels:
         plotter.add_text("\n".join(labels), color="white", font_size=11)
-    if len(tunnels) > 2 or rail_shapes or project.terrain or project.portals:
+    if len(tunnels) > 2 or rail_shapes or project.terrain or project.portals or project.obstacles:
         plotter.add_legend(loc="upper right")
     plotter.add_axes()
     plotter.show()

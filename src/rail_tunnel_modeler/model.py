@@ -133,13 +133,64 @@ def compare(first, second):
     return compare_solids(CollisionIndex(first.outer), CollisionIndex(second.outer))
 
 
+def _plane_slice(triangle, origin, normal):
+    distances = (triangle - origin) @ normal
+    points = list(triangle[np.abs(distances) <= 1e-8])
+    for i in range(3):
+        j = (i + 1) % 3
+        if distances[i] * distances[j] < 0:
+            fraction = distances[i] / (distances[i] - distances[j])
+            points.append(triangle[i] + fraction * (triangle[j] - triangle[i]))
+    return np.asarray(points)
+
+
+def _triangle_contact(first, second):
+    a, b = [np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+            for triangle in (first, second)]
+    norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
+    if min(norm_a, norm_b) == 0:
+        return None
+    a, b = a / norm_a, b / norm_b
+    line = np.cross(a, b)
+    length = np.linalg.norm(line)
+    if length <= 1e-10:
+        if np.max(np.abs((second - first[0]) @ a)) > 1e-8:
+            return None
+        drop = int(np.argmax(np.abs(a)))
+        kept = [i for i in range(3) if i != drop]
+        intersection = Polygon(first[:, kept]).intersection(Polygon(second[:, kept]))
+        if intersection.is_empty:
+            return None
+        point = np.empty(3)
+        point[kept] = intersection.representative_point().coords[0]
+        point[drop] = first[0, drop] - (point[kept] - first[0, kept]) @ a[kept] / a[drop]
+        return point
+
+    line /= length
+    span_a = _plane_slice(first, second[0], b)
+    span_b = _plane_slice(second, first[0], a)
+    if not len(span_a) or not len(span_b):
+        return None
+    ta, tb = (span_a - first[0]) @ line, (span_b - first[0]) @ line
+    low, high = max(ta.min(), tb.min()), min(ta.max(), tb.max())
+    if low > high + 1e-8:
+        return None
+    return span_a[0] + line * ((low + high) / 2 - ta[0])
+
+
 def compare_solids(first, second):
     a, b = first.object, second.object
     collision = fcl.CollisionResult()
-    fcl.collide(a, b, fcl.CollisionRequest(num_max_contacts=1, enable_contact=True), collision)
+    fcl.collide(a, b, fcl.CollisionRequest(num_max_contacts=8, enable_contact=True), collision)
     if collision.is_collision:
-        point = np.asarray(collision.contacts[0].pos, dtype=float)
-        return "contact_or_overlap", 0.0, (point, point)
+        # FCL can return a penetration witness away from the triangle intersection.
+        for contact in collision.contacts:
+            triangle_a = first.mesh.vertices[first.mesh.faces[contact.b1]]
+            triangle_b = second.mesh.vertices[second.mesh.faces[contact.b2]]
+            point = _triangle_contact(triangle_a, triangle_b)
+            if point is not None:
+                return "contact_or_overlap", 0.0, (point, point)
+        raise ValueError("Could not locate the surface contact reported by the collision engine")
 
     # Surface queries miss a solid that lies wholly inside the other solid.
     for container, candidate in ((first.mesh, second.mesh), (second.mesh, first.mesh)):

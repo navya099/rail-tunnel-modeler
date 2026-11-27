@@ -147,6 +147,26 @@ rail-tunnel-modeler examples/portals.json --glb outputs/portals.glb --report out
 
 [갱문 예제](examples/portals.json)는 1030m 진입부와 1070m 출입부에 갱문을 배치합니다. 진입부의 두 사면에는 소단이 포함됩니다.
 
+### 기존 터널과 지장물
+
+`obstacles`에 기존 도로터널(`road_tunnel`), 철도터널(`rail_tunnel`), 관로 등 지장물(`utility`), 구조물(`structure`)을 등록합니다. 각 항목에는 고유 `name`, `kind` 및 다음 형상 중 하나가 필요합니다. 좌표와 표고는 선형과 같은 기준의 미터 단위를 사용합니다.
+
+| 형상 | 입력 |
+| --- | --- |
+| `box` | 중심 `center_enz_m`의 `[동, 북, 표고]`, `size_m`의 `[길이, 폭, 높이]`, 선택 항목 `bearing_deg`. 방향은 북쪽에서 시계 방향으로 재며 기본값은 북쪽입니다. |
+| `pipe` | `points_enz_m`에 관로 중심선의 `[동, 북, 표고]` 좌표를 순서대로 입력하고 `diameter_m`로 외경을 지정합니다. 각 선분을 원형 단면과 둥근 끝을 가진 형상으로 배치합니다. |
+| `glb` | `path`, `origin_enz_m` 및 필요하면 `nodes`를 지정합니다. GLB의 X·Y·Z는 동·표고·남 방향입니다. 원점은 프로젝트 좌표계의 `[동, 북, 표고]`입니다. 선택한 형상은 닫힌 솔리드여야 합니다. |
+
+지맥에서 내보낸 GLB를 다시 쓸 때는 원래 보고서의 `model_origin_enz_m`을 복사하고, 예를 들어 `"nodes": ["Box/outer"]`처럼 검토할 외곽 노드를 지정합니다. `nodes`를 생략하면 GLB의 모든 형상 노드를 불러옵니다.
+
+프로젝트 전체의 기준 이격은 `obstacle_clearance_m`으로 정하며 기본값은 0m입니다. 지장물별 `required_clearance_m`이 있으면 그 값을 사용합니다. `obstacle_checks`는 지장물마다 본선과 부속 갱의 외곽을 비교해 `contact_or_overlap` 또는 `containment`, `below_clearance`, `clear`를 보고합니다. 결과에는 최소 3D 이격, 양쪽 형상의 좌표와 설계 터널 측점이 들어갑니다. 뷰어는 간섭 또는 기준 미달 위치를 표시하고, 기준 미달인 경우 최단점을 선으로 연결합니다. 본선 하나만으로도 이 검토를 실행할 수 있습니다.
+
+```sh
+rail-tunnel-modeler examples/obstacles.json --glb outputs/obstacles.glb --report outputs/obstacles-report.json --view
+```
+
+[지장물 예제](examples/obstacles.json)는 상부 도로터널의 이격 0.862m와 기준 1.0m, 기존 철도터널의 겹침, 관로의 이격 확보를 함께 보여줍니다.
+
 ### 모델과 결과
 
 단면은 평면선형에 직교하는 수직면에 배치합니다. 측점 간격 상한은 기본 2m이며, `--max-step`으로 바꿀 수 있습니다. 곡선에서는 회전량에 따라 구간을 추가로 나눕니다. 이격과 측점은 샘플링한 3D 형상에서 산출합니다. JSON 좌표는 미터 단위의 동·북·표고입니다. GLB는 보고서의 `model_origin_enz_m`을 뺀 로컬 좌표를 사용하며, 축은 동·표고·남 순서입니다.

@@ -9,6 +9,8 @@ from shapely import orient_polygons, set_precision
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon
 
+from .section_core.constants import TunnelType
+
 
 @dataclass(frozen=True)
 class SectionKeyframe:
@@ -17,6 +19,7 @@ class SectionKeyframe:
     outer: Polygon
     datum_y: float
     rail_offset_y: float = 0.0
+    kind: TunnelType | None = None
 
 
 def _ordered_rings(polygon):

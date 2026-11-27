@@ -8,7 +8,7 @@ import trimesh
 from rasterio.transform import from_origin
 
 from rail_tunnel_modeler.cli import _project, main
-from rail_tunnel_modeler.portals import _cut_surface, _slope_profile
+from rail_tunnel_modeler.earthworks import _cut_surface, _slope_profile
 from rail_tunnel_modeler.terrain_profile import TerrainSections, first_daylight
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"

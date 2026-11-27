@@ -8,21 +8,8 @@ import trimesh
 from shapely.affinity import translate
 from shapely.geometry import Polygon, box
 
-from .model import check_horizontal_extent, sweep_profile
-from .terrain_profile import TerrainSections, first_daylight
-
-
-@dataclass(frozen=True)
-class ApproachCut:
-    frame: tuple[np.ndarray, np.ndarray, np.ndarray]
-    half_width: float
-    toe_offset: float
-    max_run: float
-    sides: dict[str, tuple[np.ndarray, np.ndarray]]
-
-    @property
-    def corridor(self):
-        return self.frame[1], self.half_width + self.max_run
+from .earthworks import EarthworkCut, cut_slopes, positive_dimension, prepare_earthwork
+from .model import sweep_profile
 
 
 @dataclass(frozen=True)
@@ -36,7 +23,7 @@ class PortalInput:
     heading: float
     wall: Polygon
     thickness: float
-    approach: ApproachCut | None
+    approach: EarthworkCut | None
 
 
 @dataclass(frozen=True)
@@ -47,47 +34,16 @@ class PortalModel:
     report: dict
 
 
-def _positive(value, field):
-    value = float(value)
-    if not isfinite(value) or value <= 0:
-        raise ValueError(f"{field} must be positive and finite")
-    return value
-
-
-def _slope_profile(hv, benches, limit):
-    distances, rises = [0.0], [0.0]
-    for height, width in benches:
-        run = distances[-1] + (height - rises[-1]) * hv
-        if run >= limit:
-            break
-        distances.extend([run, min(run + width, limit)])
-        rises.extend([height, height])
-        if distances[-1] == limit:
-            return np.array(distances), np.array(rises)
-    rises.append(rises[-1] + (limit - distances[-1]) / hv)
-    distances.append(limit)
-    return np.array(distances), np.array(rises)
-
-
 def _prepare_cut(spec, alignment, station, end, max_step):
-    length = _positive(spec["length_m"], "approach_cut.length_m")
-    half_width = _positive(spec["bottom_width_m"], "approach_cut.bottom_width_m") / 2
-    max_run = _positive(spec["max_run_m"], "approach_cut.max_run_m")
+    length = positive_dimension(spec["length_m"], "approach_cut.length_m")
+    half_width = positive_dimension(spec["bottom_width_m"], "approach_cut.bottom_width_m") / 2
     offset = float(spec.get("toe_offset_m", 0.0))
     if not isfinite(offset):
         raise ValueError("approach_cut.toe_offset_m must be finite")
-    benches = [(_positive(item["rise_m"], "bench rise"), _positive(item["width_m"], "bench width"))
-               for item in spec.get("benches", [])]
-    if any(a[0] >= b[0] for a, b in zip(benches, benches[1:])):
-        raise ValueError("Bench rises must increase from the toe")
     start, finish = (station - length, station) if end == "start" else (station, station + length)
     frame = alignment.sample(start, finish, max_step)
-    ratios = spec["slope_hv"]
-    sides = {
-        side: _slope_profile(_positive(ratios[side], f"{side} horizontal/vertical slope ratio"), benches, max_run)
-        for side in ("left", "right")
-    }
-    return ApproachCut(frame, half_width, offset, max_run, sides)
+    toes = np.broadcast_to([-half_width, half_width, offset], (len(frame[0]), 3))
+    return prepare_earthwork(spec, frame, toes)
 
 
 def prepare_portal(spec, main_by_name, max_step):
@@ -100,8 +56,8 @@ def prepare_portal(spec, main_by_name, max_step):
     index = 0 if end == "start" else -1
     stations, centers, headings = frame
     section = keyframes[index]
-    margin = _positive(spec.get("wall_margin_m", 0.5), "wall_margin_m")
-    thickness = _positive(spec.get("wall_thickness_m", 0.8), "wall_thickness_m")
+    margin = positive_dimension(spec.get("wall_margin_m", 0.5), "wall_margin_m")
+    thickness = positive_dimension(spec.get("wall_thickness_m", 0.8), "wall_thickness_m")
     x0, y0, x1, y1 = section.outer.bounds
     outer = box(x0 - margin, y0 - margin, x1 + margin, y1 + margin)
     wall = translate(outer.difference(section.inner), yoff=-section.datum_y)
@@ -118,72 +74,9 @@ def prepare_portal(spec, main_by_name, max_step):
                        headings[index], wall, thickness, approach)
 
 
-def _cut_surface(rows, right_side):
-    if len(rows) < 2:
-        return None
-    template = next((row for row in rows if row is not None), None)
-    if template is None:
-        return None
-    width = len(template)
-    vertices, faces = [], []
-    preceding = None
-    for row in rows:
-        if row is None:
-            preceding = None
-            continue
-        current = len(vertices) * width
-        if preceding is not None:
-            a = preceding + np.arange(width - 1)
-            b, c = a + 1, current + np.arange(width - 1)
-            faces.extend([np.column_stack((a, c, b)), np.column_stack((b, c, c + 1))])
-        vertices.append(row)
-        preceding = current
-    if not faces:
-        return None
-    faces = np.vstack(faces)
-    if right_side:
-        faces = faces[:, ::-1]
-    mesh = trimesh.Trimesh(vertices=np.vstack(vertices), faces=faces, process=True, validate=True)
-    mesh.remove_unreferenced_vertices()
-    return mesh if len(mesh.faces) else None
-
-
-def _slope(approach, side, alignment, terrain, origin):
-    stations, centers, headings = approach.frame
-    distances, rises = approach.sides[side]
-    sign = 1 if side == "right" else -1
-    rows, report = [], []
-    max_width = approach.half_width
-    for station, center, heading in zip(stations, centers - origin, headings):
-        direction = sign * np.array([np.sin(heading), -np.cos(heading)])
-        toe = center + [*(direction * approach.half_width), approach.toe_offset]
-        spans = terrain.intervals(toe, direction, approach.max_run)
-        status, run = first_daylight(spans, distances, rises, toe[2])
-        point = None
-        if run is not None:
-            offsets = distances.clip(max=run)
-            row = toe + np.column_stack((offsets[:, None] * direction, np.interp(offsets, distances, rises)))
-            rows.append(row)
-            point = (row[-1] + origin).tolist()
-            max_width = max(max_width, approach.half_width + run)
-        else:
-            rows.append(None)
-        report.append({
-            "internal_station_m": float(station),
-            "displayed_station_m": float(alignment.displayed_station(station)),
-            "result": status,
-            "point_enz_m": point,
-        })
-    check_horizontal_extent("Approach cut", alignment, stations, 0 if sign == 1 else -max_width,
-                            max_width if sign == 1 else 0)
-    return _cut_surface(rows, sign == 1), report
-
-
 def build_portals(inputs, terrain, origin):
-    if any(item.approach is not None for item in inputs):
-        if terrain is None:
-            raise ValueError("A portal approach cut requires terrain")
-        terrain_sections = TerrainSections(terrain.tiles)
+    if terrain is None and any(item.approach is not None for item in inputs):
+        raise ValueError("A portal approach cut requires terrain")
     models = []
     for item in inputs:
         direction = -1 if item.end == "start" else 1
@@ -198,12 +91,6 @@ def build_portals(inputs, terrain, origin):
             "point_enz_m": item.center.tolist(),
         }
         if item.approach is not None:
-            approach_report = {}
-            for side in item.approach.sides:
-                slope, sections = _slope(item.approach, side, item.alignment, terrain_sections, origin)
-                approach_report[side] = sections
-                if slope is not None:
-                    slopes[side] = slope
-            report["approach_cut"] = approach_report
+            slopes, report["approach_cut"] = cut_slopes(item.approach, item.alignment, terrain, origin, item.name)
         models.append(PortalModel(item.name, wall, slopes, report))
     return models

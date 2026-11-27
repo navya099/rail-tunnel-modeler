@@ -147,6 +147,18 @@ rail-tunnel-modeler examples/portals.json --glb outputs/portals.glb --report out
 
 [갱문 예제](examples/portals.json)는 1030m 진입부와 1070m 출입부에 갱문을 배치합니다. 진입부의 두 사면에는 소단이 포함됩니다.
 
+### 개착 Box 굴착구간
+
+본선 구간의 `cut_and_cover`에 굴착 조건을 입력하면 개착 Box 외곽을 따라 계획 굴착 바닥면과 좌우 사면을 생성합니다. 해당 구간의 모든 단면은 개착 Box여야 하고 프로젝트에 DEM 또는 LandXML 지형이 필요합니다. `working_space_m`은 Box 외곽 좌우에 더할 `[왼쪽, 오른쪽]` 여유 폭이며 기본값은 각각 1m입니다. `overdig_m`은 Box 외곽 바닥에서 추가로 내릴 깊이이며 기본값은 0m입니다. 사면은 갱문 접근부와 같은 `slope_hv`, `max_run_m`, `benches`를 사용합니다. 단면 전이구간에서는 변하는 박스 폭과 높이를 적용합니다.
+
+보고서의 `cut_and_cover.sections`에는 측점별 굴착 바닥 폭·표고, Box 외곽 상단 표고, 중심선 원지형 표고와 토피가 들어갑니다. 토피는 중심선 원지형 표고에서 Box 외곽 상단 표고를 뺀 값입니다. 지형 데이터가 없으면 토피는 `null`이며, 음수 토피는 Box 상단이 그 위치의 원지형보다 높다는 뜻입니다. 좌우 사면 접점과 지형 공백은 `cut_and_cover.daylight`에서 확인할 수 있습니다. GLB와 뷰어는 Box, 원지형, 굴착 바닥면과 사면을 각각 표시합니다.
+
+```sh
+rail-tunnel-modeler examples/cut-and-cover.json --glb outputs/cut-and-cover.glb --report outputs/cut-and-cover-report.json --view
+```
+
+[개착 굴착 예제](examples/cut-and-cover.json)는 1030m부터 1070m까지 좌우 작업 여유와 소단을 포함한 굴착구간을 생성합니다.
+
 ### 기존 터널과 지장물
 
 `obstacles`에 기존 도로터널(`road_tunnel`), 철도터널(`rail_tunnel`), 관로 등 지장물(`utility`), 구조물(`structure`)을 등록합니다. 각 항목에는 고유 `name`, `kind` 및 다음 형상 중 하나가 필요합니다. 좌표와 표고는 선형과 같은 기준의 미터 단위를 사용합니다.

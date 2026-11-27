@@ -14,6 +14,7 @@ from defusedxml.common import DefusedXmlException
 
 from .auxiliaries import place_auxiliary, shaft_section
 from .checks import validate_pairs
+from .cut_and_cover import CutAndCoverModel, build_cut_and_cover, prepare_cut_and_cover
 from .landxml import LandXML
 from .loft import SectionKeyframe
 from .model import Tunnel, build_tunnel, sweep_tunnel
@@ -24,6 +25,7 @@ from .rail_clearance import (RAIL_STYLE, RailShape, check_rail_shapes, facility_
                              track_range, track_shapes)
 from .sections import boundaries, read_section
 from .terrain import Terrain, load_terrain
+from .terrain_profile import TerrainSections
 
 
 @dataclass
@@ -35,6 +37,7 @@ class ProjectResult:
     terrain: Terrain | None
     portals: list[PortalModel]
     obstacles: list[Obstacle]
+    cut_and_cover: list[CutAndCoverModel]
 
 
 def _output(path, source_files):
@@ -71,7 +74,7 @@ def _section_keyframes(spec, project_folder, sources, start, end):
         if not isfinite(datum_y):
             raise ValueError("Section datum must be finite")
         inner, outer = boundaries(section, entry.get("outer_boundary"))
-        result.append(SectionKeyframe(station, inner, outer, datum_y, section.RL - datum_y))
+        result.append(SectionKeyframe(station, inner, outer, datum_y, section.RL - datum_y, section.kind))
     return result
 
 
@@ -110,6 +113,8 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     names = [item["name"] for item in (*segments, *auxiliaries)]
     if not segments or len(set(names)) != len(names):
         raise ValueError("Specify at least one main tunnel and use unique model names")
+    if terrain_spec is None and any("cut_and_cover" in spec for spec in segments):
+        raise ValueError("Cut-and-cover excavation requires terrain")
     tracks, facilities = _rail_inputs(config, {segment["name"] for segment in segments})
     if len(names) < 2 and not (tracks or terrain_spec is not None or portal_specs or obstacle_specs):
         raise ValueError("A single tunnel needs a clearance track, terrain, portals, or obstacles")
@@ -124,6 +129,7 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
 
     landxml = LandXML(landxml_path)
     inputs = []
+    excavations = []
     for spec in segments:
         alignment = landxml.alignment(spec["alignment"], spec.get("profile"))
         start, end = float(spec["start_station"]), float(spec["end_station"])
@@ -133,6 +139,8 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
             section_stations.extend(track_range(track, start, end))
         frame = alignment.sample(start, end, max_step, section_stations)
         inputs.append((spec["name"], alignment, frame, keyframes))
+        if "cut_and_cover" in spec:
+            excavations.append(prepare_cut_and_cover(spec["cut_and_cover"], *inputs[-1]))
     main_by_name = {name: (alignment, frame, keyframes) for name, alignment, frame, keyframes in inputs}
     portal_inputs = [prepare_portal(spec, main_by_name, max_step) for spec in portal_specs]
     additional_inputs = []
@@ -180,8 +188,9 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
         report["rail_checks"] = check_rail_shapes(rail_shapes, {t.name: t for t in tunnels}, origin)
     terrain = None
     cut_terrain = None
+    corridors = [portal.approach.corridor for portal in portal_inputs if portal.approach is not None]
+    corridors.extend(excavation.cut.corridor for excavation in excavations)
     if terrain_spec is not None:
-        corridors = [portal.approach.corridor for portal in portal_inputs if portal.approach is not None]
         terrain = load_terrain(terrain_spec, path.parent, landxml_path, landxml, centerlines, origin,
                                extra_corridors=corridors)
         report["terrain"] = terrain.summary(origin)
@@ -189,13 +198,17 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
         if corridors and terrain.source == "dem" and terrain_spec.get("dem_stride", 1) > 1:
             cut_terrain = load_terrain({**terrain_spec, "dem_stride": 1}, path.parent, landxml_path,
                                        landxml, [], origin, extra_corridors=corridors, allow_empty=True)
-    portals = build_portals(portal_inputs, cut_terrain, origin)
+    terrain_sections = TerrainSections(cut_terrain.tiles) if corridors and cut_terrain is not None else None
+    portals = build_portals(portal_inputs, terrain_sections, origin)
     if portals:
         report["portals"] = [portal.report for portal in portals]
+    cut_and_cover = build_cut_and_cover(excavations, terrain_sections, origin)
+    if cut_and_cover:
+        report["cut_and_cover"] = [excavation.report for excavation in cut_and_cover]
     obstacles = load_obstacles(obstacle_specs, path.parent, origin, config.get("obstacle_clearance_m", 0))
     if obstacles:
         report["obstacle_checks"] = check_obstacles(tunnels, obstacles, origin)
-    result = ProjectResult(report, tunnels, points, rail_shapes, terrain, portals, obstacles)
+    result = ProjectResult(report, tunnels, points, rail_shapes, terrain, portals, obstacles, cut_and_cover)
     if glb_path:
         _write_glb(glb_path, result)
     return result
@@ -231,6 +244,12 @@ def _write_glb(path, result):
         for side, slope in portal.slopes.items():
             scene.add_geometry(_colored_mesh(slope, [177, 107, 70, 255]),
                                geom_name=f"Portal/{portal.name}/Cut/{side}")
+    for excavation in result.cut_and_cover:
+        prefix = f"CutAndCover/{excavation.tunnel}"
+        scene.add_geometry(_colored_mesh(excavation.formation, [222, 177, 106, 255]),
+                           geom_name=f"{prefix}/Formation")
+        for side, slope in excavation.slopes.items():
+            scene.add_geometry(_colored_mesh(slope, [177, 107, 70, 255]), geom_name=f"{prefix}/Cut/{side}")
     for obstacle in result.obstacles:
         for i, mesh in enumerate(obstacle.meshes, 1):
             scene.add_geometry(_colored_mesh(mesh, OBSTACLE_COLOR), geom_name=f"Obstacle/{obstacle.name}/{i}")

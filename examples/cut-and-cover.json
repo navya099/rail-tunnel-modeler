@@ -1,0 +1,28 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "Cut and cover",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1030,
+      "end_station": 1070,
+      "section": "box.json",
+      "datum": "FL",
+      "cut_and_cover": {
+        "working_space_m": [1.0, 1.5],
+        "overdig_m": 0.25,
+        "max_run_m": 19,
+        "slope_hv": {"left": 0.5, "right": 0.52},
+        "benches": [{"rise_m": 6, "width_m": 1.2}]
+      }
+    }
+  ],
+  "terrain": {
+    "type": "landxml_surface",
+    "path": "terrain-tin.xml",
+    "surface": "Existing ground",
+    "project_crs": "EPSG:5179",
+    "corridor_m": 8
+  }
+}

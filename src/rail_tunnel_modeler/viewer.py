@@ -57,6 +57,13 @@ def show(project):
         for slope in portal.slopes.values():
             plotter.add_mesh(_polydata(slope), color="#b16b46", label=cut_label)
             cut_label = None
+    formation_label = "Excavation floor"
+    for excavation in project.cut_and_cover:
+        plotter.add_mesh(_polydata(excavation.formation), color="#deb16a", label=formation_label)
+        formation_label = None
+        for slope in excavation.slopes.values():
+            plotter.add_mesh(_polydata(slope), color="#b16b46", label=cut_label)
+            cut_label = None
     if project.obstacles:
         obstacle_label = "External objects"
         color = np.array(OBSTACLE_COLOR[:3]) / 255.0

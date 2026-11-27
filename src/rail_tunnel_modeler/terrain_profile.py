@@ -4,7 +4,7 @@ from functools import cache
 
 import numpy as np
 import shapely
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
 
@@ -46,6 +46,16 @@ class TerrainSections:
                 gradient = gradients[hit]
                 spans.append((low, high, z + (start - [x, y]) @ gradient, direction @ gradient))
         return sorted(spans)
+
+    def elevation_at(self, xy):
+        point = Point(xy)
+        for index in self.tile_index.query(point, predicate="intersects"):
+            tree, origins, gradients = self._cached_tile(index)
+            hits = tree.query(point, predicate="intersects")
+            if len(hits):
+                hit = hits[0]
+                return float(origins[hit, 2] + (xy - origins[hit, :2]) @ gradients[hit])
+        return None
 
 
 def first_daylight(spans, distances, rises, toe_elevation):

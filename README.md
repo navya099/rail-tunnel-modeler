@@ -97,6 +97,33 @@ rail-tunnel-modeler examples/rail-clearance.json --report outputs/rail-clearance
 
 [철도시설물 예제](examples/rail-clearance.json)는 표지판의 건축한계 침범, 차량의 28mm 이격, 다른 궤도의 건축한계 내공 돌출을 보여줍니다. `--view`를 추가하면 각 형상과 간섭 표시를 확인할 수 있습니다.
 
+### DEM과 LandXML 지형
+
+프로젝트 JSON에 `terrain`을 추가하면 본선과 부속 갱 중심선 주변의 지형을 함께 표시합니다. `corridor_m`은 중심선에서 양쪽으로 적용할 수평 거리이며 기본값은 50m입니다. 보고서의 `terrain`에는 지형 이름, 좌표계, 타일·삼각형 수와 동·북·표고 범위가 들어갑니다. 본선 하나와 지형만 있는 프로젝트도 실행할 수 있습니다.
+
+- **LandXML Surface**는 `type`을 `landxml_surface`로 지정하고 `surface`에 TIN 이름을 입력합니다. `path`를 생략하면 선형 LandXML 안의 Surface를 읽습니다. 삼각형은 회랑과 교차하는 원래 면을 사용하며, 선형과 TIN은 같은 수평 좌표계를 사용해야 합니다.
+- **DEM**은 `python -m pip install ".[terrain]"`으로 지원을 설치하고, `type`을 `dem`으로 지정합니다. `path`의 래스터 첫 번째 밴드는 미터 단위 표고이며 원본 CRS가 필요합니다. LandXML에 EPSG 코드가 없으면 `project_crs`에 미터 단위 투영 좌표계를 입력합니다. DEM은 이 좌표계로 변환하고 회랑에 닿는 창 단위로 읽습니다. `dem_stride`는 원본 픽셀의 샘플 간격이며 기본값은 1입니다. 타일 경계에서는 샘플을 공유하고, NoData가 포함된 셀은 비워 둡니다.
+
+두 형식 모두 `vertical_offset_m`으로 지형 표고에 보정값을 더할 수 있습니다. 표고 기준은 입력 자료에서 확인합니다. 다음은 GeoTIFF를 사용할 때의 설정 예입니다.
+
+```json
+{
+  "terrain": {
+    "type": "dem",
+    "path": "ground.tif",
+    "project_crs": "EPSG:5179",
+    "corridor_m": 75,
+    "dem_stride": 2
+  }
+}
+```
+
+```sh
+rail-tunnel-modeler examples/terrain-tin.json --glb outputs/terrain-tin.glb --report outputs/terrain-tin-report.json --view
+```
+
+[TIN 예제](examples/terrain-tin.json)는 터널과 원지형을 표시합니다. 로컬 뷰어에서 `T`를 누르면 지형 표시를 켜고 끌 수 있습니다. GLB는 지형을 별도 노드로 포함합니다. `--view`에는 `viewer` 설치 옵션이 필요합니다.
+
 ### 모델과 결과
 
 단면은 평면선형에 직교하는 수직면에 배치합니다. 측점 간격 상한은 기본 2m이며, `--max-step`으로 바꿀 수 있습니다. 곡선에서는 회전량에 따라 구간을 추가로 나눕니다. 이격과 측점은 샘플링한 3D 형상에서 산출합니다. JSON 좌표는 미터 단위의 동·북·표고입니다. GLB는 보고서의 `model_origin_enz_m`을 뺀 로컬 좌표를 사용하며, 축은 동·표고·남 순서입니다.

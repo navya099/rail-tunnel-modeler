@@ -12,7 +12,8 @@ def _polydata(mesh):
     return pv.PolyData(mesh.vertices, np.column_stack((np.full(len(mesh.faces), 3), mesh.faces)))
 
 
-def show(tunnels, points, report, rail_shapes):
+def show(project):
+    tunnels, points, report, rail_shapes = project.tunnels, project.points, project.report, project.rail_shapes
     plotter = pv.Plotter(title="Rail Tunnel Modeler")
     plotter.set_background("#18242d")
     colors = cycle(("#67b8ed", "#f6a05b", "#55be90", "#b590dc"))
@@ -45,8 +46,23 @@ def show(tunnels, points, report, rail_shapes):
             location = check["location"]["displayed_station_m"]
             name = check.get("facility", check["track"])
             labels.append(f"{name}: STA {location:.3f} m")
+    if project.terrain:
+        terrain_actors = []
+        for index, tile in enumerate(project.terrain.tiles):
+            actor = plotter.add_mesh(_polydata(tile), color="#b3a781", opacity=0.36,
+                                     label="Terrain" if index == 0 else None)
+            terrain_actors.append(actor)
+
+        def toggle_terrain():
+            visible = not terrain_actors[0].GetVisibility()
+            for actor in terrain_actors:
+                actor.SetVisibility(visible)
+            plotter.render()
+
+        plotter.add_key_event("t", toggle_terrain)
+        labels.append("T: Toggle terrain")
     plotter.add_text("\n".join(labels), color="white", font_size=11)
-    if len(tunnels) > 2 or rail_shapes:
+    if len(tunnels) > 2 or rail_shapes or project.terrain:
         plotter.add_legend(loc="upper right")
     plotter.add_axes()
     plotter.show()

@@ -31,7 +31,8 @@ def _write_config(folder, config):
 
 def test_all_auxiliaries_and_allowed_connections(tmp_path):
     glb_path = tmp_path / "auxiliaries.glb"
-    report, tunnels, _, _ = _project(EXAMPLES / "auxiliaries.json", glb_path=glb_path)
+    project = _project(EXAMPLES / "auxiliaries.json", glb_path=glb_path)
+    report, tunnels = project.report, project.tunnels
     assert len(tunnels) == 6
     assert len(report["checks"]) == 15
     for tunnel in tunnels[1:]:
@@ -54,7 +55,7 @@ def test_overlap_outside_box_remains_a_clash(tmp_path):
     branch = config["auxiliaries"][2]
     branch["connection"]["allow_overlap_box_m"][1] = 4
     config["auxiliaries"] = [branch]
-    report, _, _, _ = _project(_write_config(tmp_path, config))
+    report = _project(_write_config(tmp_path, config)).report
     assert report["result"] == "contact_or_overlap"
     assert report["minimum_clearance_m"] == 0
     assert report["witnesses"][0]["tunnel"] == "Main"
@@ -70,7 +71,7 @@ def test_connection_box_applies_only_to_the_declared_pair(tmp_path):
     shaft["connection"]["station"] = 1050
     shaft["connection"]["allow_overlap_box_m"][2] = 40
     config["auxiliaries"] = [shaft]
-    report, _, _, _ = _project(_write_config(tmp_path, config))
+    report = _project(_write_config(tmp_path, config)).report
     assert report["result"] == "contact_or_overlap"
     assert _pair(report, "Main", shaft["name"])["result"] == "allowed_connection"
     assert _pair(report, "Box", shaft["name"])["result"] == "contact_or_overlap"
@@ -82,7 +83,7 @@ def test_missing_contact_is_reported_as_unconnected(tmp_path):
     gallery["connection"]["offset_m"] = [14, 1]
     gallery["end_enz_m"][1] -= 18
     config["auxiliaries"] = [gallery]
-    report, _, _, _ = _project(_write_config(tmp_path, config))
+    report = _project(_write_config(tmp_path, config)).report
     assert report["result"] == "unconnected"
     assert report["minimum_clearance_m"] > 0
 
@@ -92,7 +93,7 @@ def test_box_that_covers_the_entire_auxiliary(tmp_path):
     shaft = config["auxiliaries"][-1]
     shaft["connection"]["allow_overlap_box_m"][2] = 100
     config["auxiliaries"] = [shaft]
-    report, _, _, _ = _project(_write_config(tmp_path, config))
+    report = _project(_write_config(tmp_path, config)).report
     assert report["result"] == "allowed_connection"
     assert report["minimum_clearance_m"] is None
 
@@ -103,7 +104,7 @@ def test_descending_shaft_and_connection_validation(tmp_path):
     shaft["end_elevation_m"] = -20
     config["auxiliaries"] = [shaft]
     path = _write_config(tmp_path, config)
-    _, (_, model), _, _ = _project(path)
+    _, model = _project(path).tunnels
     assert model.outer.is_volume and model.inner[0].is_volume
     assert model.stations.tolist() == pytest.approx([0, 21])
     shaft["connection"]["station"] = 1101

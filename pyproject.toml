@@ -20,7 +20,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "rasterio>=1.4"]
+terrain = ["rasterio>=1.4"]
 viewer = ["pyvista>=0.45"]
 
 [project.scripts]

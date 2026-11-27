@@ -1,0 +1,21 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "Main",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1010,
+      "end_station": 1090,
+      "section": "natm.json",
+      "datum": "FL"
+    }
+  ],
+  "terrain": {
+    "type": "landxml_surface",
+    "path": "terrain-tin.xml",
+    "surface": "Existing ground",
+    "project_crs": "EPSG:5179",
+    "corridor_m": 12
+  }
+}

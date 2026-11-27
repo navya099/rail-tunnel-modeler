@@ -57,7 +57,8 @@ def test_compartment_column_is_outside_inner_voids(tmp_path):
     config["clearances"] = [config["clearances"][0]]
     config["clearances"][0]["track_offset_m"] = 0
     config["facilities"] = []
-    report, (tunnel,), _, _ = _project(_project_file(tmp_path, config))
+    project = _project(_project_file(tmp_path, config))
+    report, (tunnel,) = project.report, project.tunnels
     assert len(tunnel.inner) == 2
     check = _find(report, "Down track")
     assert check["result"] == "intrusion"
@@ -78,7 +79,8 @@ def test_rail_level_changes_through_a_section_transition(tmp_path):
     del track["vehicle"]
     config["clearances"] = [track]
     config["facilities"] = []
-    report, _, _, (gauge,) = _project(_project_file(tmp_path, config))
+    project = _project(_project_file(tmp_path, config))
+    report, (gauge,) = project.report, project.rail_shapes
     world = gauge.mesh.vertices + report["model_origin_enz_m"]
     start = world[np.isclose(world[:, 0], 250021, rtol=0, atol=1e-6)]
     end = world[np.isclose(world[:, 0], 250081, rtol=0, atol=1e-6)]
@@ -92,7 +94,7 @@ def test_cant_rotates_only_the_configured_profile(tmp_path):
     track["vehicle"]["cant_deg"] = 10
     config["clearances"] = [track]
     config["facilities"] = []
-    _, _, _, (gauge, vehicle) = _project(_project_file(tmp_path, config))
+    gauge, vehicle = _project(_project_file(tmp_path, config)).rail_shapes
     # The first contour follows the eastbound alignment; the right side is south.
     floor = vehicle.mesh.vertices[vehicle.mesh.vertices[:, 0] == vehicle.mesh.vertices[:, 0].min()]
     assert floor[:, 2].min() == pytest.approx(0.472 + 0.1 * np.cos(np.deg2rad(10)) - 1.55 * np.sin(np.deg2rad(10)))

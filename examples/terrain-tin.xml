@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Units><Metric linearUnit="meter"/></Units>
+  <CoordinateSystem epsgCode="5179"/>
+  <Surfaces>
+    <Surface name="Existing ground">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="10">450025 249980 24</P>
+          <P id="30">449975 249980 21</P>
+          <P id="40">450025 250050 29</P>
+          <P id="42">449975 250050 27</P>
+          <P id="55">450025 250120 22</P>
+          <P id="60">449975 250120 20</P>
+          <P id="80">450010 250400 35</P>
+          <P id="81">449990 250400 36</P>
+          <P id="82">450010 250420 34</P>
+        </Pnts>
+        <Faces>
+          <F>10 30 40</F>
+          <F>40 42 30</F>
+          <F>40 42 55</F>
+          <F>55 60 42</F>
+          <F>80 81 82</F>
+        </Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from dataclasses import dataclass
 from itertools import cycle
 from math import isfinite
 from pathlib import Path
@@ -15,10 +16,20 @@ from .auxiliaries import place_auxiliary, shaft_section
 from .checks import validate_pairs
 from .landxml import LandXML
 from .loft import SectionKeyframe
-from .model import build_tunnel, sweep_tunnel
-from .rail_clearance import (RAIL_STYLE, check_rail_shapes, facility_shape, rail_intrusion_points,
+from .model import Tunnel, build_tunnel, sweep_tunnel
+from .rail_clearance import (RAIL_STYLE, RailShape, check_rail_shapes, facility_shape, rail_intrusion_points,
                              track_range, track_shapes)
 from .sections import boundaries, read_section
+from .terrain import Terrain, load_terrain
+
+
+@dataclass
+class ProjectResult:
+    report: dict
+    tunnels: list[Tunnel]
+    points: np.ndarray
+    rail_shapes: list[RailShape]
+    terrain: Terrain | None
 
 
 def _output(path, source_files):
@@ -88,13 +99,16 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     landxml_path = path.parent / config["landxml"]
     segments = config["tunnels"]
     auxiliaries = config.get("auxiliaries", [])
+    terrain_spec = config.get("terrain")
     names = [item["name"] for item in (*segments, *auxiliaries)]
     if not segments or len(set(names)) != len(names):
         raise ValueError("Specify at least one main tunnel and use unique model names")
     tracks, facilities = _rail_inputs(config, {segment["name"] for segment in segments})
-    if len(names) < 2 and not tracks:
-        raise ValueError("Specify at least one main tunnel and two uniquely named models in total")
+    if len(names) < 2 and not tracks and terrain_spec is None:
+        raise ValueError("Provide a second tunnel, a clearance track, or terrain for a single tunnel model")
     sources = {path.resolve(), landxml_path.resolve()}
+    if terrain_spec is not None and "path" in terrain_spec:
+        sources.add((path.parent / terrain_spec["path"]).resolve())
     if glb_path and report_path and glb_path.resolve() == report_path.resolve():
         raise ValueError("--glb and --report must use different output paths")
 
@@ -125,7 +139,8 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     _output(glb_path, sources)
     _output(report_path, sources)
 
-    axes = np.vstack([entry[2][1] for entry in (*inputs, *additional_inputs)])
+    centerlines = [entry[2][1] for entry in (*inputs, *additional_inputs)]
+    axes = np.vstack(centerlines)
     origin = (axes.min(axis=0) + axes.max(axis=0)) / 2
     tunnels = [build_tunnel(*entry, origin) for entry in inputs]
     tunnels.extend(sweep_tunnel(*entry, origin, vertical=entry[1].vertical)
@@ -151,9 +166,14 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
             rail_shapes.append(facility_shape(facility, tunnel, origin))
     if rail_shapes:
         report["rail_checks"] = check_rail_shapes(rail_shapes, {t.name: t for t in tunnels}, origin)
+    terrain = None
+    if terrain_spec is not None:
+        terrain = load_terrain(terrain_spec, path.parent, landxml_path, landxml, centerlines, origin)
+        report["terrain"] = terrain.summary(origin)
+    result = ProjectResult(report, tunnels, points, rail_shapes, terrain)
     if glb_path:
-        _write_glb(glb_path, tunnels, points, rail_shapes, rail_intrusion_points(report))
-    return report, tunnels, points, rail_shapes
+        _write_glb(glb_path, result)
+    return result
 
 
 def _colored_mesh(mesh, color):
@@ -164,22 +184,26 @@ def _colored_mesh(mesh, color):
     return result
 
 
-def _write_glb(path, tunnels, points, rail_shapes, rail_points):
+def _write_glb(path, result):
     scene = trimesh.Scene()
     colors = cycle(([79, 158, 219], [228, 138, 70], [85, 190, 144], [181, 144, 220]))
-    for tunnel, color in zip(tunnels, colors):
+    for tunnel, color in zip(result.tunnels, colors):
         outer = _colored_mesh(tunnel.outer, [*color, 96])
         scene.add_geometry(outer, geom_name=f"{tunnel.name}/outer")
         for i, part in enumerate(tunnel.inner, 1):
-            inner = _colored_mesh(part, [*color, 32 if rail_shapes else 255])
+            inner = _colored_mesh(part, [*color, 32 if result.rail_shapes else 255])
             scene.add_geometry(inner, geom_name=f"{tunnel.name}/inner/{i}")
-    for shape in rail_shapes:
+    for shape in result.rail_shapes:
         color, _ = RAIL_STYLE[shape.kind]
         mesh = _colored_mesh(shape.mesh, color)
         scene.add_geometry(mesh, geom_name=f"{shape.tunnel}/{shape.kind}/{shape.name}")
+    if result.terrain:
+        for i, tile in enumerate(result.terrain.tiles, 1):
+            scene.add_geometry(_colored_mesh(tile, [175, 165, 132, 112]), geom_name=f"Terrain/{i}")
+    points = result.points
     if len(points) == 2 and np.linalg.norm(points[0] - points[1]) <= 1e-8:
         points = points[:1]
-    for i, point in enumerate([*points, *rail_points], 1):
+    for i, point in enumerate([*points, *rail_intrusion_points(result.report)], 1):
         marker = trimesh.creation.icosphere(subdivisions=2, radius=0.25)
         marker.apply_translation(point)
         marker.visual.face_colors = [255, 40, 70, 255]
@@ -205,13 +229,13 @@ def main(argv=None):
                 if exc.name != "pyvista":
                     raise
                 raise ValueError('Install the viewer with pip install ".[viewer]"') from exc
-        report, meshes, points, rail_shapes = _project(args.project, args.glb, args.report, args.max_step)
-        result = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
+        project = _project(args.project, args.glb, args.report, args.max_step)
+        result = json.dumps(project.report, ensure_ascii=False, indent=2, allow_nan=False)
         if args.report:
             args.report.write_text(result + "\n", encoding="utf-8")
         print(result)
         if args.view:
-            show(meshes, points, report, rail_shapes)
+            show(project)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, ParseError, DefusedXmlException) as exc:
         parser.exit(2, f"Error: {exc}\n")
     return 0

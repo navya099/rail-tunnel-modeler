@@ -60,9 +60,9 @@ def _check_crs(*codes):
     return next(iter(present), None)
 
 
-def _corridor(axes, distance):
+def _corridor(corridors):
     paths = []
-    for centers in axes:
+    for centers, distance in corridors:
         xy = centers[:, :2]
         path = Point(xy[0]) if np.all(xy == xy[0]) else LineString(xy)
         paths.append(path.buffer(distance))
@@ -138,14 +138,14 @@ def _tin_tiles(xml, name, region, offset, origin):
     return [_tile(points, np.asarray(group), origin) for _, group in sorted(groups.items())], surface.get("name", "TIN")
 
 
-def _candidate_tiles(raster, axes, buffer_m, span):
+def _candidate_tiles(raster, corridors, span):
     count_x = (raster.width - 2) // span + 1
     count_y = (raster.height - 2) // span + 1
     if count_x < 1 or count_y < 1:
         return []
     transform = raster.transform
     tiles = set()
-    for centers in axes:
+    for centers, buffer_m in corridors:
         for a, b in zip(centers[:-1, :2], centers[1:, :2]):
             x0, y0 = np.minimum(a, b) - buffer_m
             x1, y1 = np.maximum(a, b) + buffer_m
@@ -189,7 +189,7 @@ def _dem_tile(raw, row, col, transform, stride, scale, offset, region, origin):
     return _tile(points, faces, origin) if len(faces) else None
 
 
-def _dem_tiles(path, project_crs, axes, distance, region, stride, offset, origin):
+def _dem_tiles(path, project_crs, corridors, region, stride, offset, origin):
     try:
         import rasterio
         from rasterio.enums import Resampling
@@ -226,7 +226,7 @@ def _dem_tiles(path, project_crs, axes, distance, region, stride, offset, origin
         if not (transform.a > 0 and transform.e < 0 and transform.b == transform.d == 0):
             raise ValueError("Could not convert the DEM to a north-up grid")
         span = min(stride, DEM_TILE_CELLS) * max(1, DEM_TILE_CELLS // stride)
-        for tile_row, tile_col in _candidate_tiles(raster, axes, distance, span):
+        for tile_row, tile_col in _candidate_tiles(raster, corridors, span):
             row, col = tile_row * span, tile_col * span
             count_y = min(raster.height - row, span + 1)
             count_x = min(raster.width - col, span + 1)
@@ -242,7 +242,7 @@ def _dem_tiles(path, project_crs, axes, distance, region, stride, offset, origin
     return tiles
 
 
-def load_terrain(spec, folder, landxml_path, landxml, centers, origin):
+def load_terrain(spec, folder, landxml_path, landxml, centers, origin, *, extra_corridors=(), allow_empty=False):
     source_type = spec["type"]
     if source_type not in {"dem", "landxml_surface"}:
         raise ValueError("Terrain type must be dem or landxml_surface")
@@ -255,7 +255,9 @@ def load_terrain(spec, folder, landxml_path, landxml, centers, origin):
     if not isfinite(distance) or distance <= 0 or not isfinite(offset):
         raise ValueError("Terrain corridor_m must be positive and vertical_offset_m finite")
     crs = _check_crs(_epsg(spec.get("project_crs")), _xml_crs(landxml))
-    region = _corridor(centers, distance)
+    corridors = [(axis, distance) for axis in centers]
+    corridors.extend(extra_corridors)
+    region = _corridor(corridors)
 
     if source_type == "landxml_surface":
         xml = landxml if path.resolve() == landxml_path.resolve() else LandXML(path)
@@ -267,8 +269,8 @@ def load_terrain(spec, folder, landxml_path, landxml, centers, origin):
         stride = spec.get("dem_stride", 1)
         if type(stride) is not int or stride < 1:
             raise ValueError("dem_stride must be a positive integer")
-        tiles = _dem_tiles(path, crs, centers, distance, region, stride, offset, origin)
+        tiles = _dem_tiles(path, crs, corridors, region, stride, offset, origin)
         name = path.name
-    if not tiles:
+    if not tiles and not allow_empty:
         raise ValueError("Terrain has no usable triangles in the modeled corridor")
     return Terrain(source_type, name, tiles, crs)

@@ -46,6 +46,12 @@ def show(project):
             location = check["location"]["displayed_station_m"]
             name = check.get("facility", check["track"])
             labels.append(f"{name}: STA {location:.3f} m")
+    cut_label = "Cut slope"
+    for portal in project.portals:
+        plotter.add_mesh(_polydata(portal.wall), color="#b9c2ca", label=portal.name)
+        for slope in portal.slopes.values():
+            plotter.add_mesh(_polydata(slope), color="#b16b46", label=cut_label)
+            cut_label = None
     if project.terrain:
         terrain_actors = []
         for index, tile in enumerate(project.terrain.tiles):
@@ -61,8 +67,9 @@ def show(project):
 
         plotter.add_key_event("t", toggle_terrain)
         labels.append("T: Toggle terrain")
-    plotter.add_text("\n".join(labels), color="white", font_size=11)
-    if len(tunnels) > 2 or rail_shapes or project.terrain:
+    if labels:
+        plotter.add_text("\n".join(labels), color="white", font_size=11)
+    if len(tunnels) > 2 or rail_shapes or project.terrain or project.portals:
         plotter.add_legend(loc="upper right")
     plotter.add_axes()
     plotter.show()

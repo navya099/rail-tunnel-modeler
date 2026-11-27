@@ -124,6 +124,29 @@ rail-tunnel-modeler examples/terrain-tin.json --glb outputs/terrain-tin.glb --re
 
 [TIN 예제](examples/terrain-tin.json)는 터널과 원지형을 표시합니다. 로컬 뷰어에서 `T`를 누르면 지형 표시를 켜고 끌 수 있습니다. GLB는 지형을 별도 노드로 포함합니다. `--view`에는 `viewer` 설치 옵션이 필요합니다.
 
+### 갱문과 절토사면
+
+`portals`에 고유 `name`, 본선 모델 이름 `tunnel`, 배치할 구간 끝 `end`(`start` 또는 `end`)를 지정합니다. 갱문은 해당 끝 단면의 외곽을 감싸는 직사각형 개념 벽체이며, 모든 내공 구획을 개구부로 유지합니다. `wall_margin_m`은 외곽에 더할 여유 폭으로 기본값은 0.5m입니다. `wall_thickness_m`은 터널 바깥 방향으로 연장할 두께이며 기본값은 0.8m입니다. 같은 설정을 NATM, 다중 아치, 개착 Box 구간에 적용할 수 있습니다.
+
+`approach_cut`을 지정하면 본선 모델의 끝에서 바깥 방향으로 LandXML 선형을 따라 절토사면을 생성합니다. 접근부 전 길이는 입력 평면·종단선형 범위 안에 있어야 합니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `length_m` | 본선 모델 끝에서 바깥쪽으로 모델링할 접근부 길이 |
+| `bottom_width_m` | 좌우 사면 시작점 사이의 전체 폭 |
+| `toe_offset_m` | 선형 표고에서 사면 시작점까지의 높이 차이. 기본값은 0m |
+| `slope_hv.left`, `slope_hv.right` | 좌우 사면의 수평거리/수직높이 비율. 좌우는 측점 증가 방향 기준 |
+| `max_run_m` | 각 사면 시작점부터 지형 접점을 찾을 최대 수평거리 |
+| `benches` | 선택 항목. 각 소단의 시작 높이 `rise_m`과 수평 폭 `width_m`을 낮은 순서로 입력 |
+
+각 접근부 측점에서 사면과 원지형 삼각형의 첫 교점을 계산합니다. DEM은 표시용 `dem_stride` 적용 전 해상도로 절토 접점을 계산합니다. 보고서에는 `daylight`와 접점 좌표, `no_cut`과 사면 시작점, 또는 접점을 얻을 수 없는 상태가 들어갑니다. `no_terrain`은 사면 시작점에 지형이 없는 경우, `terrain_gap`은 접점 이전에 지형이 끊긴 경우, `no_daylight`는 검색 범위 안에서 지형에 닿지 않은 경우입니다. 지형이 끊긴 측점을 가로질러 사면을 연결하지 않습니다. 원지형, 갱문, 사면은 별도 형상으로 내보냅니다.
+
+```sh
+rail-tunnel-modeler examples/portals.json --glb outputs/portals.glb --report outputs/portals-report.json --view
+```
+
+[갱문 예제](examples/portals.json)는 1030m 진입부와 1070m 출입부에 갱문을 배치합니다. 진입부의 두 사면에는 소단이 포함됩니다.
+
 ### 모델과 결과
 
 단면은 평면선형에 직교하는 수직면에 배치합니다. 측점 간격 상한은 기본 2m이며, `--max-step`으로 바꿀 수 있습니다. 곡선에서는 회전량에 따라 구간을 추가로 나눕니다. 이격과 측점은 샘플링한 3D 형상에서 산출합니다. JSON 좌표는 미터 단위의 동·북·표고입니다. GLB는 보고서의 `model_origin_enz_m`을 뺀 로컬 좌표를 사용하며, 축은 동·표고·남 순서입니다.

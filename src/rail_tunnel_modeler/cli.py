@@ -17,6 +17,7 @@ from .checks import validate_pairs
 from .landxml import LandXML
 from .loft import SectionKeyframe
 from .model import Tunnel, build_tunnel, sweep_tunnel
+from .portals import PortalModel, build_portals, prepare_portal
 from .rail_clearance import (RAIL_STYLE, RailShape, check_rail_shapes, facility_shape, rail_intrusion_points,
                              track_range, track_shapes)
 from .sections import boundaries, read_section
@@ -30,6 +31,7 @@ class ProjectResult:
     points: np.ndarray
     rail_shapes: list[RailShape]
     terrain: Terrain | None
+    portals: list[PortalModel]
 
 
 def _output(path, source_files):
@@ -100,12 +102,16 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     segments = config["tunnels"]
     auxiliaries = config.get("auxiliaries", [])
     terrain_spec = config.get("terrain")
+    portal_specs = config.get("portals", [])
     names = [item["name"] for item in (*segments, *auxiliaries)]
     if not segments or len(set(names)) != len(names):
         raise ValueError("Specify at least one main tunnel and use unique model names")
     tracks, facilities = _rail_inputs(config, {segment["name"] for segment in segments})
-    if len(names) < 2 and not tracks and terrain_spec is None:
-        raise ValueError("Provide a second tunnel, a clearance track, or terrain for a single tunnel model")
+    if len(names) < 2 and not tracks and terrain_spec is None and not portal_specs:
+        raise ValueError("Provide a second tunnel, a clearance track, terrain, or portals for a single tunnel model")
+    if (len({spec["name"] for spec in portal_specs}) != len(portal_specs)
+            or len({(spec["tunnel"], spec["end"]) for spec in portal_specs}) != len(portal_specs)):
+        raise ValueError("Portals require unique names and distinct tunnel ends")
     sources = {path.resolve(), landxml_path.resolve()}
     if terrain_spec is not None and "path" in terrain_spec:
         sources.add((path.parent / terrain_spec["path"]).resolve())
@@ -123,14 +129,16 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
             section_stations.extend(track_range(track, start, end))
         frame = alignment.sample(start, end, max_step, section_stations)
         inputs.append((spec["name"], alignment, frame, keyframes))
-    main_by_name = {name: (alignment, frame[0]) for name, alignment, frame, _ in inputs}
+    main_by_name = {name: (alignment, frame, keyframes) for name, alignment, frame, keyframes in inputs}
+    portal_inputs = [prepare_portal(spec, main_by_name, max_step) for spec in portal_specs]
     additional_inputs = []
     connections = {}
     for spec in auxiliaries:
         parent_name = spec["connection"]["tunnel"]
         if parent_name not in main_by_name:
             raise ValueError(f"{spec['name']}: connection tunnel must name a main tunnel")
-        axis, connection = place_auxiliary(spec, *main_by_name[parent_name])
+        parent_axis, parent_frame, _ = main_by_name[parent_name]
+        axis, connection = place_auxiliary(spec, parent_axis, parent_frame[0])
         keyframes = ([shaft_section(spec)] if axis.vertical
                      else _section_keyframes(spec, path.parent, sources, 0, axis.length))
         frame = axis.sample(max_step, [keyframe.station for keyframe in keyframes])
@@ -167,10 +175,20 @@ def _project(path, glb_path=None, report_path=None, max_step=2.0):
     if rail_shapes:
         report["rail_checks"] = check_rail_shapes(rail_shapes, {t.name: t for t in tunnels}, origin)
     terrain = None
+    cut_terrain = None
     if terrain_spec is not None:
-        terrain = load_terrain(terrain_spec, path.parent, landxml_path, landxml, centerlines, origin)
+        corridors = [portal.approach.corridor for portal in portal_inputs if portal.approach is not None]
+        terrain = load_terrain(terrain_spec, path.parent, landxml_path, landxml, centerlines, origin,
+                               extra_corridors=corridors)
         report["terrain"] = terrain.summary(origin)
-    result = ProjectResult(report, tunnels, points, rail_shapes, terrain)
+        cut_terrain = terrain
+        if corridors and terrain.source == "dem" and terrain_spec.get("dem_stride", 1) > 1:
+            cut_terrain = load_terrain({**terrain_spec, "dem_stride": 1}, path.parent, landxml_path,
+                                       landxml, [], origin, extra_corridors=corridors, allow_empty=True)
+    portals = build_portals(portal_inputs, cut_terrain, origin)
+    if portals:
+        report["portals"] = [portal.report for portal in portals]
+    result = ProjectResult(report, tunnels, points, rail_shapes, terrain, portals)
     if glb_path:
         _write_glb(glb_path, result)
     return result
@@ -200,6 +218,12 @@ def _write_glb(path, result):
     if result.terrain:
         for i, tile in enumerate(result.terrain.tiles, 1):
             scene.add_geometry(_colored_mesh(tile, [175, 165, 132, 112]), geom_name=f"Terrain/{i}")
+    for portal in result.portals:
+        scene.add_geometry(_colored_mesh(portal.wall, [185, 194, 202, 255]),
+                           geom_name=f"Portal/{portal.name}/Headwall")
+        for side, slope in portal.slopes.items():
+            scene.add_geometry(_colored_mesh(slope, [177, 107, 70, 255]),
+                               geom_name=f"Portal/{portal.name}/Cut/{side}")
     points = result.points
     if len(points) == 2 and np.linalg.norm(points[0] - points[1]) <= 1e-8:
         points = points[:1]

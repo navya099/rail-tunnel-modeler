@@ -1,0 +1,49 @@
+{
+  "landxml": "crossing.xml",
+  "tunnels": [
+    {
+      "name": "Main",
+      "alignment": "Lower",
+      "profile": "Design",
+      "start_station": 1030,
+      "end_station": 1070,
+      "section": "natm.json",
+      "datum": "FL"
+    }
+  ],
+  "terrain": {
+    "type": "landxml_surface",
+    "path": "terrain-tin.xml",
+    "surface": "Existing ground",
+    "project_crs": "EPSG:5179",
+    "corridor_m": 8
+  },
+  "portals": [
+    {
+      "name": "Entrance",
+      "tunnel": "Main",
+      "end": "start",
+      "wall_margin_m": 0.55,
+      "wall_thickness_m": 0.8,
+      "approach_cut": {
+        "length_m": 18,
+        "bottom_width_m": 16,
+        "toe_offset_m": 0,
+        "max_run_m": 17,
+        "slope_hv": {"left": 0.5, "right": 0.52},
+        "benches": [{"rise_m": 6, "width_m": 1.2}]
+      }
+    },
+    {
+      "name": "Exit",
+      "tunnel": "Main",
+      "end": "end",
+      "approach_cut": {
+        "length_m": 18,
+        "bottom_width_m": 16,
+        "max_run_m": 17,
+        "slope_hv": {"left": 0.52, "right": 0.5}
+      }
+    }
+  ]
+}
